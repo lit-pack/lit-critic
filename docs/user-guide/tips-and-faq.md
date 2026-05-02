@@ -4,15 +4,9 @@ Practical guidance for day-to-day use.
 
 ---
 
-## Choosing an interface
+## Interface
 
-| Interface | Best for | How to start |
-|-----------|----------|-------------|
-| **VS Code** | Working inside your editor, squiggly underlines in your scene | Install the extension, open your project folder |
-| **Web UI** | Reviewing multiple consecutive scenes, browser-based workflow | `python lit-critic-web.py` → http://localhost:8000 |
-| **CLI** | Quick single-scene passes, terminal workflow | `python -m cli sessions start --scene scene.txt --project ~/novel/ --mode quick` |
-
-All three interfaces share the same project data. Start a review in VS Code, continue it in the Web UI later, or check session history from the CLI — it all stays in sync.
+lit-critic is used through the **VS Code extension**. The extension connects to a local REST API server (`lit-critic-server.py`) which you start automatically or manually. All review data is stored in your project folder in `.lit-critic.db`.
 
 ---
 
@@ -29,8 +23,6 @@ Start with **quick** while you're actively drafting. Switch to **deep** when a s
 
 **In VS Code:** use the **Config** button in the Sessions toolbar before starting a session.
 
-**On the CLI:** add `--mode quick` or `--mode deep` to the command.
-
 ---
 
 ## Cost
@@ -43,7 +35,7 @@ Typical cost for a 3–4 page scene:
 
 The exact cost depends on the AI model you've chosen and how much discussion you do. Discussion adds cost per message.
 
-To reduce costs: run quick mode for drafting passes. Use the "Skip Minor" option during review to move through the session faster.
+To reduce costs: run quick mode for drafting passes. Use **Skip Minor** during review to move through the session faster.
 
 ---
 
@@ -51,7 +43,7 @@ To reduce costs: run quick mode for drafting passes. Use the "Skip Minor" option
 
 You don't need to save manually. Every action — accepting a finding, rejecting one, typing a discussion message, navigating to the next finding — is saved to your project the moment it happens.
 
-If you close VS Code, quit the browser tab, or interrupt the CLI mid-review, your progress is fully preserved. The next time you start an analysis, the tool will offer to resume the session where you left off.
+If you close VS Code mid-review, your progress is fully preserved. The next time you start an analysis, the tool will offer to resume the session where you left off.
 
 ---
 
@@ -67,10 +59,6 @@ In VS Code, this happens automatically. Use **Review Current Finding** in the Co
 
 **VS Code:** press `Ctrl+Shift+L` — the tool automatically offers to resume an active session.
 
-**Web UI:** the home screen shows the active session and offers to resume.
-
-**CLI:** `python -m cli sessions resume --project ~/my-novel/`
-
 If you've moved your project folder to a new location or different computer, the tool will detect the mismatch and prompt you for the new path. You can correct it and resume without losing any progress.
 
 ---
@@ -80,10 +68,6 @@ If you've moved your project folder to a new location or different computer, the
 To analyze several consecutive scenes in one session — useful for arc-level continuity checks across chapter boundaries:
 
 **VS Code:** when the scene selector opens, add multiple scenes in reading order.
-
-**Web UI:** use "Add another scene" on the setup screen.
-
-**CLI:** single-scene only. Use VS Code or Web UI for multi-scene sessions.
 
 ---
 
@@ -102,7 +86,7 @@ No. Reject what doesn't apply. The learning system tracks your rejections and ca
 Discuss it. Explain the context the AI missed. It will either withdraw the finding or ask you to verify it against CANON.md or your extracted knowledge.
 
 **Can I use lit-critic without VS Code?**  
-Yes — the Web UI and CLI are fully functional. VS Code offers the richest experience (inline underlines, sidebar views, real-time sync) but it's optional.
+The VS Code extension is the primary interface. The underlying REST API (`/api/*`) is open and documented in `docs/technical/api-reference.md` for integrators who want to build other clients.
 
 **Should I commit `.lit-critic.db` to Git?**  
 No. Add `.lit-critic.db` to your `.gitignore`. It contains your review history and grows as you use the tool. You don't want it in version control.

@@ -55,6 +55,15 @@ Only two fields are required:
 | `Prev` | Filename of the previous scene, or `None` for the first scene | Strict format check |
 | `Next` | Filename of the next scene, or `TBD` if not written yet | Strict format check |
 
+#### `None` vs `TBD` — When to Use Each
+
+| Sentinel | Meaning | When to use |
+|----------|---------|-------------|
+| `None` | No adjacent scene exists | The **first** scene in the manuscript (`Prev: None`), or the **last** scene in a finished manuscript (`Next: None`) |
+| `TBD` | An adjacent scene will exist but isn't written yet | You're mid-draft and the next (or previous) scene hasn't been created yet |
+
+The tool treats both as valid "no pointer" values and skips them during chain validation. Use `None` for permanent boundaries, `TBD` for temporary gaps.
+
 Any other fields you include in the META block are silently ignored — they will not cause errors, but they are not used.
 
 ### Example
@@ -145,7 +154,7 @@ If you renamed a scene file outside the tool (via OS file explorer, git, etc.) a
    ```
    This makes the tool discover the newly-named file and register it in the database. The scene will reappear in the Scenes tree.
 
-2. **Purge Orphaned Scene References** — In VS Code, open the Command Palette and run **"Literary Critic: Clean Up Stale Scene References"** (`literaryCritic.purgeOrphanedSceneRefs`). Confirm the prompt. The tool will remove all database rows that still reference the old filename, which no longer exists on disk. It reports how many stale rows were removed.
+2. **Purge Orphaned Scene References** — In VS Code, open the Command Palette and run **"Literary Critic: Clean Up Stale Scene References"** (`litCritic.purgeOrphanedSceneRefs`). Confirm the prompt. The tool will remove all database rows that still reference the old filename, which no longer exists on disk. It reports how many stale rows were removed.
 
 3. **Run Knowledge Refresh** — The newly-registered scene will have no extracted knowledge yet. Run **Refresh Knowledge** to extract its characters, terms, threads, and timeline entries.
 
@@ -189,7 +198,7 @@ Your CANON.md and STYLE.md can also be in your novel's language — the tool wor
 
 
 ❌ **Expecting old-style META fields (Cast, Threads, etc.) to do anything**  
-✅ These fields are silently ignored — let auto-extraction handle them
+✅ These fields are silently ignored — Refresh Knowledge extracts them from your prose
 
 ---
 

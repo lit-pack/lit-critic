@@ -105,7 +105,7 @@ describe('KnowledgeTreeProvider', () => {
         assert.equal(characterItems[0].label, 'Alice');
         assert.equal(characterItems[0].contextValue, 'knowledgeEntityOverridden');
         assert.equal(characterItems[0].iconPath?.id, 'symbol-property');
-        assert.equal(characterItems[0].command?.command, 'literaryCritic.openKnowledgeReviewPanel');
+        assert.equal(characterItems[0].command?.command, 'litCritic.openKnowledgeReviewPanel');
         // Production now includes flagged, locked, stale fields on the payload
         assert.deepEqual(characterItems[0].command?.arguments?.[0], {
             category: 'characters',
@@ -118,6 +118,7 @@ describe('KnowledgeTreeProvider', () => {
             locked: false,
             flagged: false,
             stale: false,
+            orphaned: false,
         });
         // Description is now derived from flag/stale/lock/override state
         assert.equal(characterItems[0].description, 'overridden');

@@ -9,14 +9,16 @@ This directory contains the text of *The Picture of Dorian Gray* by **Oscar Wild
 
 ## Contents
 
-The novel text is split into chapter files (one file per chapter). Index files prepared for lit-critic are included alongside:
+The novel text is split into chapter files (one file per chapter). A CANON.md index file is included alongside:
 
 | File | Description |
 |------|-------------|
 | `chapter-*.txt` | Chapter text (no @@META headers) |
-| `CAST.md` | Character facts and relationships |
-| `THREADS.md` | Narrative threads |
-| `TIMELINE.md` | Chapter sequence and summaries |
+| `CANON.md` | World canon: rules, facts, and lore |
+
+> Note: CAST.md, THREADS.md, and TIMELINE.md were previously part of this fixture but have been
+> removed. Knowledge about characters, threads, and timeline is now stored in SQLite by the
+> auto-extraction pipeline.
 
 ## Setup
 
@@ -24,9 +26,8 @@ If you've cloned the repo and this directory is empty (no chapter files), you ne
 
 1. Download the plain-text version from Project Gutenberg
 2. Split into chapter files named `chapter-01.txt` through `chapter-20.txt` (plus the Preface)
-3. Place your `CAST.md`, `THREADS.md`, and `TIMELINE.md` here
 
-The chapter files and index files should all live flat in this directory — no subdirectories needed.
+The chapter files and CANON.md should all live flat in this directory — no subdirectories needed.
 
 ## Usage in Tests
 
@@ -41,4 +42,4 @@ def test_something_with_real_text(real_novel_dir):
 
 ## Note
 
-This text is in the public domain and is redistributable. The index files (CAST.md, THREADS.md, TIMELINE.md) were prepared specifically for this project.
+This text is in the public domain and is redistributable. CANON.md was prepared specifically for this project.

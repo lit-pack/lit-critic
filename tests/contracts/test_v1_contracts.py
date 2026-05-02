@@ -20,7 +20,7 @@ from contracts.v1.schemas import (
     ReEvaluateFindingRequest,
 )
 from contracts.v1.wrappers import run_analyze_contract_compatible
-from lit_platform.runtime.llm.base import LLMResponse
+from orchestrator.runtime.llm.base import LLMResponse
 
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
@@ -130,7 +130,7 @@ class TestAdaptersAndParity:
         legacy = adapt_analyze_request_to_legacy(req)
         assert legacy["scene"] == "Scene body"
         assert legacy["indexes"]["CANON.md"] == "canon text"
-        assert legacy["indexes"]["GLOSSARY.md"] == ""
+        assert legacy["indexes"]["glossary"] == ""
 
     def test_adapt_discuss_request_to_legacy(self):
         req = DiscussRequest.model_validate(

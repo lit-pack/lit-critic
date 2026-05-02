@@ -30,20 +30,6 @@ describe('DiscussionPanel', () => {
         });
     });
 
-    describe('ambiguity buttons', () => {
-        it('should show ambiguity buttons when needed', () => {
-            const isAmbiguity = true;
-            const showButtons = isAmbiguity ? 'visible' : 'hidden';
-            assert.equal(showButtons, 'visible');
-        });
-
-        it('should hide ambiguity buttons when not needed', () => {
-            const isAmbiguity = false;
-            const showButtons = isAmbiguity ? 'visible' : 'hidden';
-            assert.equal(showButtons, 'hidden');
-        });
-    });
-
     describe('message formatting', () => {
         it('should map persisted discussion turns to display roles', () => {
             const turns = [

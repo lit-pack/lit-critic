@@ -24,13 +24,11 @@ function makeDeps(overrides: Partial<StalenessServiceDeps> = {}): StalenessServi
     scenesSetStaleInputPaths: Set<string>[];
     knowledgeSetAllEntitiesStale: boolean[];
     knowledgeSetStaleEntityKeys: Set<string>[];
-    sessionsSetStaleSessions: Set<number>[];
     refreshCalls: string[];
 } {
     const scenesSetStaleInputPaths: Set<string>[] = [];
     const knowledgeSetAllEntitiesStale: boolean[] = [];
     const knowledgeSetStaleEntityKeys: Set<string>[] = [];
-    const sessionsSetStaleSessions: Set<number>[] = [];
     const refreshCalls: string[] = [];
 
     const scenesTreeProvider: any = {
@@ -43,16 +41,10 @@ function makeDeps(overrides: Partial<StalenessServiceDeps> = {}): StalenessServi
     const knowledgeTreeProvider: any = {
         setAllEntitiesStale: (v: boolean) => knowledgeSetAllEntitiesStale.push(v),
         setStaleEntityKeys: (s: Set<string>) => knowledgeSetStaleEntityKeys.push(s),
+        setOrphanedSceneKeys: (_keys: Set<string>) => {},
         setApiClient: () => {},
         setProjectPath: () => {},
         refresh: async () => { refreshCalls.push('knowledge'); },
-    };
-
-    const sessionsTreeProvider: any = {
-        setStaleSessions: (s: Set<number>) => sessionsSetStaleSessions.push(s),
-        setApiClient: () => {},
-        setProjectPath: () => {},
-        refresh: async () => { refreshCalls.push('sessions'); },
     };
 
     const deps: StalenessServiceDeps = {
@@ -64,7 +56,6 @@ function makeDeps(overrides: Partial<StalenessServiceDeps> = {}): StalenessServi
         stalenessRegistry: new StalenessRegistry(),
         scenesTreeProvider,
         knowledgeTreeProvider,
-        sessionsTreeProvider,
         ...overrides,
     };
 
@@ -73,7 +64,6 @@ function makeDeps(overrides: Partial<StalenessServiceDeps> = {}): StalenessServi
         scenesSetStaleInputPaths,
         knowledgeSetAllEntitiesStale,
         knowledgeSetStaleEntityKeys,
-        sessionsSetStaleSessions,
         refreshCalls,
     };
 }
@@ -186,29 +176,17 @@ describe('stalenessService — recheckStaleness()', () => {
         assert.ok(keySet.has('terms:sword'));
     });
 
-    it('pushes stale session IDs to sessionsTreeProvider', async () => {
-        const staleInputs = [
-            makeStaleInput({ affected_sessions: [10, 20] }),
-            makeStaleInput({ path: '/b.txt', affected_sessions: [30] }),
-        ];
-        const deps = makeDeps({
-            ensureApiClient: () => ({
-                getInputStaleness: async () => ({ stale_inputs: staleInputs }),
-            } as any),
-        });
-        await recheckStaleness(deps);
-        const sessionSet = deps.sessionsSetStaleSessions[0];
-        assert.ok(sessionSet.has(10));
-        assert.ok(sessionSet.has(20));
-        assert.ok(sessionSet.has(30));
-    });
+    // Test for stale session IDs removed — sessionsTreeProvider no longer in StalenessServiceDeps.
 
-    it('refreshes all three tree providers', async () => {
+    it('does NOT call refresh() on tree providers — badge updates via set*() are sufficient', async () => {
+        // recheckStaleness() is a lightweight staleness check. It updates tree
+        // badges by calling setStaleInputPaths / setStaleEntityKeys
+        // (which each fire _onDidChangeTreeData internally), so explicit refresh()
+        // calls are redundant and wasteful. Full tree refreshes are the caller's
+        // responsibility after data-changing operations (e.g. after knowledge refresh).
         const deps = makeDeps();
         await recheckStaleness(deps);
-        assert.ok(deps.refreshCalls.includes('scenes'));
-        assert.ok(deps.refreshCalls.includes('knowledge'));
-        assert.ok(deps.refreshCalls.includes('sessions'));
+        assert.equal(deps.refreshCalls.length, 0);
     });
 
     it('passes projectPath to getInputStaleness', async () => {

@@ -5,8 +5,8 @@ This document describes the **current canonical architecture** of lit-critic.
 lit-critic is organized as three explicit layers:
 
 1. **Core (`core/`)** — stateless reasoning engine
-2. **Platform (`lit_platform/`)** — workflow + persistence owner
-3. **Clients (`cli/`, `web/`, `vscode-extension/`)** — thin UX layers
+2. **Platform (`orchestrator/`)** — workflow + persistence owner
+3. **API server (`api/`)** and **VS Code extension (`vscode-extension/`)** — thin client layers
 
 ---
 
@@ -23,15 +23,15 @@ lit-critic is organized as three explicit layers:
 ## 2) Runtime Topology
 
 ```text
-CLI / Web UI / VS Code
+VS Code Extension
         |
         |  /api/*
         v
-Web/API Surface (web/routes.py)
+REST API Surface (api/routes.py)
         |
         |  Platform services + facade
         v
-Platform (lit_platform/*)
+Orchestrator (orchestrator/*)
      /      |       \
     /       |        \
    v        v         v
@@ -71,7 +71,7 @@ Core is stateless and contract-first.
 
 ---
 
-## 4) Platform (`lit_platform/`)
+## 4) Platform (`orchestrator/`)
 
 Platform is the workflow boundary and source of orchestration truth.
 
@@ -84,7 +84,8 @@ Platform is the workflow boundary and source of orchestration truth.
 - `persistence/*` — SQLite lifecycle and data access
 - `services/*` — session/discussion/learning orchestration services
 - `services/scene_projection_service.py` + `services/index_projection_service.py` — build DB projections from authored files
-- `services/project_knowledge_service.py` — orchestrates refresh/staleness checks used by CLI/web/extension surfaces
+- `services/scene_status_service.py` + `services/index_status_service.py` — single source of truth for scene and index staleness (computed on every call, not persisted; see `specs/loop-redesign-architecture.md` §3)
+- `services/project_knowledge_service.py` — orchestrates knowledge refresh workflows; delegates staleness queries to the status services above
 
 ### Platform guarantees
 
@@ -99,14 +100,9 @@ Platform is the workflow boundary and source of orchestration truth.
 
 All clients are presentation and interaction layers over Platform behavior.
 
-### CLI (`cli/`)
+### REST API Server (`api/`)
 
-- Terminal-first review loop
-- Commands for analyze/resume/sessions/learning
-
-### Web UI (`web/`)
-
-- HTTP API + HTML/JS interface
+- FastAPI HTTP endpoints consumed by the VS Code extension
 - Streaming progress + discussion
 
 ### VS Code Extension (`vscode-extension/`)
@@ -180,9 +176,13 @@ Owned by Platform for:
 The projection layer is a deterministic cache derived from authored project files.
 
 - Refresh can be explicit (`scenes refresh`, `indexes refresh`, `/api/project/refresh`) or lazy (`ensure_project_knowledge_fresh`)
-- Staleness is hash-based; unchanged files are skipped
+- Staleness is computed on demand by `scene_status_service` and `index_status_service` using file-content hashes; unchanged files are skipped
 - `STYLE.md` is tracked hash-only (no structured entries)
 - If projection rows are missing or stale, they are rebuildable from filesystem sources
+
+### Autonomous loop (`core/loop.py`)
+
+The loop is a single-pass state machine that reads computed scene and index statuses and advances work through a five-status lifecycle: `extraction_due` → `extracted` → `analysis_due` → `analyzed`, with a `failed` status for backoff. Each cycle calls `decide()` (a pure function mapping statuses + cool-down gates to actions) then executes the chosen action. All decisions are logged at INFO level for observability. See `specs/loop-redesign-architecture.md` for full design detail.
 
 Key persisted multi-scene fields include:
 

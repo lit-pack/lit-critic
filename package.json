@@ -1,24 +1,24 @@
 {
   "name": "lit-critic",
-  "version": "2.20.1",
+  "version": "1.0.0",
   "description": "Multi-lens editorial review system for fiction manuscripts",
   "private": true,
   "scripts": {
     "test": "npm run test:python && npm run test:ts",
-    "test:python": "python -m pytest",
+    "test:python": ".venv\\Scripts\\python -m pytest",
     "test:ts": "cd vscode-extension && npm test",
-    "test:python:cov": "python -m pytest --cov=core --cov=contracts --cov=lit_platform --cov=cli --cov=web",
+    "test:python:cov": "python -m pytest --cov=core --cov=contracts --cov=orchestrator --cov=web",
     "check:release-intent": "python versioning/check_release_intent.py",
     "validate:semver": "python versioning/validate_semver.py",
     "release:check": "npm run check:release-intent && npm run validate:semver",
     "hooks:install": "git config core.hooksPath .githooks",
     "install": "npm run install:python && npm run install:ts",
-    "install:python": "python -m pip install -r requirements.txt",
+    "install:python": "if not exist .venv (python -m venv .venv) && .venv\\Scripts\\pip install -r requirements.txt && .venv\\Scripts\\pip install -e \".[test]\"",
     "install:ts": "cd vscode-extension && npm install"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/alexisargyris/lit-critic.git"
+    "url": "https://github.com/lit-pack/lit-critic.git"
   },
   "keywords": [
     "writing",
@@ -29,9 +29,5 @@
     "ai"
   ],
   "author": "Alexis Argyris",
-  "license": "MIT",
-  "devDependencies": {
-    "@types/proxyquire": "^1.3.31",
-    "proxyquire": "^2.1.3"
-  }
+  "license": "MIT"
 }

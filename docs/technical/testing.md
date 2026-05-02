@@ -3,9 +3,9 @@
 This document describes how to run and write tests for lit-critic under the current architecture:
 
 - Core (`core/`)
-- Platform (`lit_platform/`)
+- Platform (`orchestrator/`)
 - Contracts (`contracts/`)
-- Client layers (`cli/`, `web/`, `vscode-extension/`)
+- Client layers (`api/`, `vscode-extension/`)
 
 ---
 
@@ -16,8 +16,7 @@ This document describes how to run and write tests for lit-critic under the curr
 - `tests/core/`
 - `tests/platform/`
 - `tests/contracts/`
-- `tests/cli/`
-- `tests/web/`
+- `tests/api/`
 
 ### TypeScript (mocha)
 
@@ -59,8 +58,7 @@ cd vscode-extension && npm test
 pytest tests/core/
 pytest tests/platform/
 pytest tests/contracts/
-pytest tests/cli/
-pytest tests/web/
+pytest tests/api/
 ```
 
 ### By file / test
@@ -83,13 +81,13 @@ pytest -v
 Run architecture-aligned coverage:
 
 ```bash
-pytest --cov=core --cov=lit_platform --cov=contracts --cov=cli --cov=web
+pytest --cov=core --cov=orchestrator --cov=contracts --cov=api
 ```
 
 HTML report:
 
 ```bash
-pytest --cov=core --cov=lit_platform --cov=contracts --cov=cli --cov=web --cov-report=html
+pytest --cov=core --cov=orchestrator --cov=contracts --cov=api --cov-report=html
 ```
 
 Open `htmlcov/index.html`.
@@ -101,7 +99,7 @@ Open `htmlcov/index.html`.
 - Core: >80%
 - Platform: >80%
 - Contracts: >90%
-- CLI/Web: >70%
+- API: >70%
 - VS Code Extension: >60%
 
 ---
@@ -189,7 +187,7 @@ jobs:
           pip install pytest pytest-cov pytest-asyncio
 
       - name: Run Python tests
-        run: pytest --cov=core --cov=lit_platform --cov=contracts --cov=cli --cov=web
+        run: pytest --cov=core --cov=orchestrator --cov=contracts --cov=api
 
       - name: Setup Node
         uses: actions/setup-node@v3

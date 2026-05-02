@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import re
 
 from core.domain import CoreFinding
 from core.ports import AnalysisEnginePort, DiscussionEnginePort, ReEvaluationEnginePort
-from lit_platform.runtime.api import re_evaluate_finding, run_analysis
-from lit_platform.runtime.discussion import handle_discussion
-from lit_platform.runtime.models import Finding, SessionState
+from orchestrator.runtime.api import re_evaluate_finding, run_analysis
+from orchestrator.runtime.models import Finding
+from orchestrator.runtime.prompts import build_discussion_messages, get_discussion_system_prompt
 
 
 class LegacyAnalysisEngineAdapter(AnalysisEnginePort):
@@ -33,7 +33,20 @@ class LegacyAnalysisEngineAdapter(AnalysisEnginePort):
 
 
 class LegacyDiscussionEngineAdapter(DiscussionEnginePort):
-    """Bridge discussion port to legacy ``server.discussion.handle_discussion``."""
+    """Minimal discussion adapter — one-shot LLM call for explain_finding.
+
+    Previously delegated to ``orchestrator.runtime.discussion.handle_discussion``
+    which carried side-effects (discussion turns, learning, state-machine
+    transitions).  The only active caller is ``explain_finding`` in
+    ``core.service`` which needs none of those — just the prompt + LLM call +
+    display-text extraction.
+    """
+
+    # Status tags that may appear in the LLM response.
+    _STATUS_TAGS = (
+        "[ESCALATED]", "[REVISED]", "[WITHDRAWN]",
+        "[REJECTED]", "[ACCEPTED]", "[CONCEDED]", "[CONTINUE]",
+    )
 
     async def discuss(
         self,
@@ -45,29 +58,55 @@ class LegacyDiscussionEngineAdapter(DiscussionEnginePort):
         model: str,
         max_tokens: int,
     ) -> tuple[str, str, CoreFinding]:
-        legacy_finding = Finding.from_dict(finding.to_dict(include_state=True))
-        state = SessionState(
-            client=discussion_client,
-            scene_content=scene_text,
-            scene_path="[stateless]",
-            # Required by legacy SessionState API; never used for FS I/O in core.
-            project_path=Path("[stateless]"),
-            indexes={},
-            findings=[legacy_finding],
-            model=model,
-            discussion_model=model,
-            discussion_client=discussion_client,
+        # Build prompt context — CoreFinding exposes the same attributes the
+        # prompt helpers expect (number, severity, lens, location, …).
+        system_prompt = get_discussion_system_prompt(
+            finding, scene_text, prior_outcomes="",
         )
+        messages = build_discussion_messages(finding, author_message)
 
-        response_text, status = await handle_discussion(
-            state,
-            legacy_finding,
-            author_message,
-            scene_changed=False,
-        )
+        try:
+            response = await discussion_client.create_message(
+                model=model,
+                max_tokens=max_tokens,
+                messages=messages,
+                system=system_prompt,
+            )
+            raw_text: str = response.text
+        except Exception as exc:
+            return f"[Discussion error: {exc}]", "continue", finding
 
-        updated_finding = CoreFinding.from_dict(legacy_finding.to_dict(include_state=True))
-        return response_text, status, updated_finding
+        display_text, status = self._parse_display_text(raw_text)
+        return display_text, status, finding
+
+    # ------------------------------------------------------------------
+    # Minimal response parser — extracts display text and status only.
+    # No revision/preference/ambiguity/learning handling.
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _parse_display_text(cls, raw: str) -> tuple[str, str]:
+        """Strip metadata tags and return ``(display_text, status)``."""
+        text = raw
+
+        # Remove [REVISION]…[/REVISION] blocks.
+        text = re.sub(r"\[REVISION\].*?\[/REVISION\]", "", text, flags=re.DOTALL)
+
+        # Remove [PREFERENCE: …] tags.
+        text = re.sub(r"\[PREFERENCE:\s*.*?\]", "", text)
+
+        # Remove [AMBIGUITY:…] tags.
+        text = re.sub(r"\[AMBIGUITY:\w+\]", "", text)
+
+        # Extract status from the first matching tag.
+        status = "continue"
+        for tag in cls._STATUS_TAGS:
+            if tag in text:
+                status = tag.strip("[]").lower()
+                text = text.replace(tag, "", 1)
+                break
+
+        return text.strip(), status
 
 
 class LegacyReEvaluationEngineAdapter(ReEvaluationEnginePort):

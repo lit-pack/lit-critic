@@ -168,47 +168,6 @@ describe('ApiClient', () => {
     });
 
     describe('Management API Methods (Phase 2)', () => {
-        describe('Session Management', () => {
-            it('should call GET /api/sessions with project_path', () => {
-                const method = 'GET';
-                const projectPath = '/test/project';
-                const path = `/api/sessions?project_path=${encodeURIComponent(projectPath)}`;
-                
-                assert.equal(method, 'GET');
-                assert.ok(path.includes('project_path='));
-                assert.ok(path.includes(encodeURIComponent(projectPath)));
-            });
-
-            it('should call GET /api/sessions/{id}', () => {
-                const method = 'GET';
-                const sessionId = 5;
-                const projectPath = '/test/project';
-                const path = `/api/sessions/${sessionId}?project_path=${encodeURIComponent(projectPath)}`;
-                
-                assert.equal(method, 'GET');
-                assert.ok(path.includes('/api/sessions/5'));
-                assert.ok(path.includes('project_path='));
-            });
-
-            it('should call DELETE /api/sessions/{id}', () => {
-                const method = 'DELETE';
-                const sessionId = 5;
-                const projectPath = '/test/project';
-                const path = `/api/sessions/${sessionId}?project_path=${encodeURIComponent(projectPath)}`;
-                
-                assert.equal(method, 'DELETE');
-                assert.ok(path.includes('/api/sessions/5'));
-            });
-
-            it('should encode project path in URL parameters', () => {
-                const projectPath = '/test/my project/with spaces';
-                const encoded = encodeURIComponent(projectPath);
-                
-                assert.notEqual(encoded, projectPath);
-                assert.ok(!encoded.includes(' '));
-            });
-        });
-
         describe('Learning Management', () => {
             it('should call GET /api/learning with project_path', () => {
                 const method = 'GET';

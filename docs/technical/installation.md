@@ -13,7 +13,7 @@ This guide covers local setup for developing and running lit-critic.
 ## Clone the repository
 
 ```bash
-git clone https://github.com/alexisargyris/lit-critic.git
+git clone https://github.com/lit-pack/lit-critic.git
 cd lit-critic
 ```
 
@@ -67,26 +67,18 @@ If omitted, sensible defaults are used.
 
 ## Run lit-critic
 
-### Web UI / API surface
+### API server
 
 ```bash
-python lit-critic-web.py
+python lit-critic-server.py
 ```
 
 Optional flags:
 
 ```bash
-python lit-critic-web.py --port 3000
-python lit-critic-web.py --reload
+python lit-critic-server.py --port 3000
+python lit-critic-server.py --reload
 ```
-
-### CLI
-
-```bash
-python lit-critic.py --help
-```
-
-For command examples, see the user guide: `docs/user-guide/your-first-review.md`.
 
 ## Run tests
 
@@ -99,7 +91,7 @@ npm test
 ### Python tests only
 
 ```bash
-pytest --cov=core --cov=lit_platform --cov=cli --cov=web --cov=contracts
+pytest --cov=core --cov=orchestrator --cov=web --cov=contracts
 ```
 
 ### TypeScript tests only
@@ -129,7 +121,7 @@ Then open `vscode-extension/` in VS Code and press **F5**.
 - **Port already in use**
   - Start web with a custom port, e.g. `--port 3000`.
 - **Extension cannot find lit-critic repo**
-  - Set `literaryCritic.repoPath` in VS Code settings to the folder containing `lit-critic-web.py`.
+  - Set `litCritic.repoPath` in VS Code settings to the folder containing `lit-critic-server.py`.
 
 ## See Also
 

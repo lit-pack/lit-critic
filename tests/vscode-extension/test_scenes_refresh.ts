@@ -6,7 +6,7 @@
  * (b) A sceneExtensions config change is reflected in the config sync payload.
  *
  * Note: the extension-level wiring (onDidChangeConfiguration calling refreshScenes,
- * literaryCritic.refreshScenes command calling refreshScenes) is exercised by the
+ * litCritic.refreshScenes command calling refreshScenes) is exercised by the
  * existing Extension (Real) suite in test_extension_real.ts.
  */
 

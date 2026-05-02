@@ -5,14 +5,12 @@ from __future__ import annotations
 from contracts.v1.schemas import (
     AnalyzeModelConfig,
     AnalyzeRequest,
-    DiscussModelConfig,
-    DiscussRequest,
     FindingContract,
     IndexesContract,
     ReEvaluateFindingRequest,
 )
 from core.domain import CoreFinding
-from core.service import analyze, discuss, re_evaluate
+from core.service import analyze, re_evaluate, explain_finding
 
 
 class _FakeAnalysisPort:
@@ -34,14 +32,6 @@ class _FakeAnalysisPort:
             ],
             "glossary_issues": [],
         }
-
-
-class _FakeDiscussionPort:
-    async def discuss(self, **kwargs):
-        finding: CoreFinding = kwargs["finding"]
-        finding.status = "accepted"
-        finding.discussion_turns.append({"role": "assistant", "content": "Accepted."})
-        return "Accepted.", "accepted", finding
 
 
 class _FakeReEvalPort:
@@ -66,36 +56,104 @@ async def test_analyze_uses_injected_analysis_port():
     assert res.findings[0].severity == "major"
 
 
-async def test_discuss_uses_injected_discussion_port():
-    req = DiscussRequest(
-        scene_text="Scene",
-        finding=FindingContract(
-            number=1,
-            severity="major",
-            lens="prose",
-            location="Paragraph 1",
-            evidence="Repeated starts",
-            impact="Monotony",
-            options=["Vary openings"],
-            flagged_by=["prose"],
-        ),
-        discussion_context={"discussion_turns": []},
-        author_message="I changed it.",
-        model_settings=DiscussModelConfig(
-            discussion_model="gpt-4o",
-            api_keys={},
-            max_tokens=256,
-        ),
-    )
+# ---------------------------------------------------------------------------
+# Fake port for explain_finding tests
+# ---------------------------------------------------------------------------
 
-    res = await discuss(
-        req,
-        discussion_client=object(),
-        discussion_engine=_FakeDiscussionPort(),
-    )
+class _FakeExplainPort:
+    """Discussion port stub for one-shot explain calls."""
 
-    assert res.assistant_response == "Accepted."
-    assert res.action.payload["legacy_status"] == "accepted"
+    def __init__(self, response: str = "Explanation."):
+        self._response = response
+
+    async def discuss(self, **kwargs):
+        finding: CoreFinding = kwargs["finding"]
+        # explain_finding does NOT mutate finding status
+        return self._response, finding.status or "active", finding
+
+
+async def test_explain_finding_returns_response_text():
+    """explain_finding returns the LLM response text as a plain string."""
+    expected = "This was flagged due to monotonous sentence rhythm."
+    result = await explain_finding(
+        finding_dict={
+            "number": 1,
+            "severity": "major",
+            "lens": "prose",
+            "location": "Paragraph 1",
+            "evidence": "Repeated sentence starts",
+            "impact": "Monotony",
+            "options": ["Vary openings"],
+            "flagged_by": ["prose"],
+        },
+        scene_text="She walked. She talked. She stopped.",
+        client=object(),
+        model="mock-model",
+        discussion_engine=_FakeExplainPort(expected),
+    )
+    assert result == expected
+
+
+async def test_explain_finding_uses_fixed_explain_prompt():
+    """explain_finding passes the canonical explain prompt to the discussion engine."""
+    captured: dict = {}
+
+    class _CapturingPort:
+        async def discuss(self, **kwargs):
+            captured.update(kwargs)
+            finding = kwargs["finding"]
+            return "Captured.", finding.status or "active", finding
+
+    await explain_finding(
+        finding_dict={
+            "number": 2,
+            "severity": "minor",
+            "lens": "clarity",
+            "location": "L1",
+            "evidence": "Unclear referent",
+            "impact": "Confusion",
+            "options": [],
+            "flagged_by": ["clarity"],
+        },
+        scene_text="It was raining.",
+        client=object(),
+        model="test",
+        discussion_engine=_CapturingPort(),
+    )
+    # The fixed explain prompt must contain the word "explain"
+    assert "explain" in captured.get("author_message", "").lower()
+
+
+async def test_explain_finding_does_not_mutate_status():
+    """explain_finding does not change the finding status (read-only)."""
+    original_status = "active"
+    final_status_seen: list[str] = []
+
+    class _StatusCheckPort:
+        async def discuss(self, **kwargs):
+            finding: CoreFinding = kwargs["finding"]
+            # Status should be unchanged before the engine is called
+            final_status_seen.append(finding.status or "active")
+            return "Explanation.", finding.status or "active", finding
+
+    await explain_finding(
+        finding_dict={
+            "number": 3,
+            "severity": "critical",
+            "lens": "structure",
+            "location": "L10",
+            "evidence": "Missing goal",
+            "impact": "Weak structure",
+            "options": [],
+            "flagged_by": ["structure"],
+            "status": original_status,
+        },
+        scene_text="Scene text.",
+        client=object(),
+        model="test",
+        discussion_engine=_StatusCheckPort(),
+    )
+    assert final_status_seen == [original_status]
 
 
 async def test_re_evaluate_uses_injected_re_eval_port():

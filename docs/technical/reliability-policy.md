@@ -6,7 +6,7 @@ This document defines the operational policy for retries and failure handling in
 
 ## Scope
 
-- **In scope:** Platform->Core HTTP transport behavior (`lit_platform/core_client.py`) and Platform persistence contention handling in SQLite-backed session/finding/learning flows.
+- **In scope:** Platform->Core HTTP transport behavior (`orchestrator/core_client.py`) and Platform persistence contention handling in SQLite-backed session/finding/learning flows.
 - **Out of scope:** provider-side LLM determinism guarantees.
 
 ---

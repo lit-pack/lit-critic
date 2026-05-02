@@ -2,13 +2,14 @@
   "name": "lit-critic",
   "displayName": "lit-critic",
   "description": "Multi-lens editorial review system for fiction manuscripts",
-  "version": "2.20.1",
-  "publisher": "alexisargyris",
+"version": "5.1.1",
+  "publisher": "lit-pack",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alexisargyris/lit-critic.git",
+    "url": "https://github.com/lit-pack/literary-critic.git",
     "directory": "vscode-extension"
   },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -23,187 +24,164 @@
   "contributes": {
     "commands": [
       {
-        "command": "literaryCritic.analyze",
-        "title": "lit-critic: Analyze",
+        "command": "litCritic.analyze",
+        "title": "Analyze (AI)",
         "icon": "$(search)"
       },
       {
-        "command": "literaryCritic.refreshKnowledge",
-        "title": "lit-critic: Update Knowledge (AI)",
+        "command": "litCritic.refreshKnowledge",
+        "title": "Update (AI)",
         "icon": "$(refresh)"
       },
       {
-        "command": "literaryCritic.resetKnowledgeOverride",
+        "command": "litCritic.resetKnowledgeOverride",
         "title": "lit-critic: Reset Knowledge Override",
         "icon": "$(discard)"
       },
       {
-        "command": "literaryCritic.deleteKnowledgeEntity",
+        "command": "litCritic.deleteKnowledgeEntity",
         "title": "lit-critic: Delete Knowledge Entity",
         "icon": "$(trash)"
       },
       {
-        "command": "literaryCritic.openKnowledgeReviewPanel",
+        "command": "litCritic.openKnowledgeReviewPanel",
         "title": "lit-critic: Open Knowledge Review Panel",
         "icon": "$(edit)"
       },
       {
-        "command": "literaryCritic.nextKnowledgeEntity",
+        "command": "litCritic.nextKnowledgeEntity",
         "title": "lit-critic: Next Knowledge Entity"
       },
       {
-        "command": "literaryCritic.previousKnowledgeEntity",
+        "command": "litCritic.previousKnowledgeEntity",
         "title": "lit-critic: Previous Knowledge Entity"
       },
       {
-        "command": "literaryCritic.viewSession",
-        "title": "lit-critic: View Session Details"
-      },
-      {
-        "command": "literaryCritic.deleteSession",
-        "title": "lit-critic: Delete Session",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "literaryCritic.refreshLearning",
-        "title": "lit-critic: Refresh Learning Data",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "literaryCritic.exportLearning",
-        "title": "lit-critic: Export Learning to LEARNING.md",
-        "icon": "$(export)"
-      },
-      {
-        "command": "literaryCritic.resetLearning",
-        "title": "lit-critic: Reset All Learning Data",
+        "command": "litCritic.resetAllKnowledge",
+        "title": "Reset",
         "icon": "$(clear-all)"
       },
       {
-        "command": "literaryCritic.deleteLearningEntry",
+        "command": "litCritic.resetAllAnalysis",
+        "title": "Reset",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "litCritic.refreshLearning",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "litCritic.exportLearning",
+        "title": "Export",
+        "icon": "$(export)"
+      },
+      {
+        "command": "litCritic.resetLearning",
+        "title": "Reset",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "litCritic.deleteLearningEntry",
         "title": "lit-critic: Delete Learning Entry",
         "icon": "$(trash)"
       },
       {
-        "command": "literaryCritic.acceptFinding",
-        "title": "lit-critic: Accept Finding",
-        "icon": "$(check)"
-      },
-      {
-        "command": "literaryCritic.rejectFinding",
-        "title": "lit-critic: Reject Finding",
-        "icon": "$(close)"
-      },
-      {
-        "command": "literaryCritic.discuss",
-        "title": "lit-critic: Discuss Finding",
-        "icon": "$(comment-discussion)"
-      },
-      {
-        "command": "literaryCritic.selectFinding",
+        "command": "litCritic.selectFinding",
         "title": "lit-critic: Select Finding"
       },
       {
-        "command": "literaryCritic.reviewFinding",
+        "command": "litCritic.reviewFinding",
         "title": "lit-critic: Review Current Finding"
       },
       {
-        "command": "literaryCritic.selectModel",
-        "title": "lit-critic: Config",
+        "command": "litCritic.selectModel",
+        "title": "Config",
         "icon": "$(settings-gear)"
       },
       {
-        "command": "literaryCritic.stopServer",
+        "command": "litCritic.stopServer",
         "title": "lit-critic: Stop Server"
       },
       {
-        "command": "literaryCritic.toggleEntityLock",
+        "command": "litCritic.toggleEntityLock",
         "title": "lit-critic: Toggle Knowledge Lock",
         "icon": "$(lock)"
       },
       {
-        "command": "literaryCritic.keepFlaggedEntity",
+        "command": "litCritic.keepFlaggedEntity",
         "title": "lit-critic: Keep Flagged Entity",
         "icon": "$(check)"
       },
       {
-        "command": "literaryCritic.deleteFlaggedEntity",
+        "command": "litCritic.deleteFlaggedEntity",
         "title": "lit-critic: Delete Flagged Entity",
         "icon": "$(trash)"
       },
       {
-        "command": "literaryCritic.revealSessionInTree",
-        "title": "lit-critic: Reveal Session in Tree"
-      },
-      {
-        "command": "literaryCritic.renameScene",
+        "command": "litCritic.renameScene",
         "title": "lit-critic: Rename Scene…",
         "icon": "$(edit)"
       },
       {
-        "command": "literaryCritic.purgeOrphanedSceneRefs",
+        "command": "litCritic.purgeOrphanedSceneRefs",
         "title": "lit-critic: Clean Up Stale Scene References",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "litCritic.navigateToFinding",
+        "title": "lit-critic: Navigate to Finding",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "litCritic.deleteSceneAnalysis",
+        "title": "lit-critic: Delete Scene Analysis",
         "icon": "$(trash)"
       }
     ],
     "configuration": {
       "title": "lit-critic",
       "properties": {
-        "literaryCritic.repoPath": {
+        "litCritic.repoPath": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to the lit-critic installation directory (containing lit-critic-web.py). Required when opening a scene folder that is not inside the lit-critic repo."
+          "scope": "machine",
+          "description": "Absolute path to the lit-critic installation directory (containing lit-critic-server.py). Required when opening a scene folder that is not inside the lit-critic repo."
         },
-        "literaryCritic.pythonPath": {
+        "litCritic.pythonPath": {
           "type": "string",
           "default": "python",
+          "scope": "machine",
           "description": "Path to Python interpreter"
         },
-        "literaryCritic.serverPort": {
+        "litCritic.serverPort": {
           "type": "number",
           "default": 8000,
           "description": "Port for the backend server"
         },
-        "literaryCritic.analysisMode": {
+        "litCritic.analysisModel": {
           "type": "string",
-          "default": "deep",
+          "default": "sonnet",
           "order": 41,
           "enum": [
-            "quick",
-            "deep"
+            "opus",
+            "sonnet",
+            "haiku"
           ],
           "enumDescriptions": [
-            "Run deterministic code checks only",
-            "Run full analysis with quick checker model slot",
-            "Run full analysis with deep checker model slot"
+            "Opus — deepest analysis, highest quality, highest cost.",
+            "Sonnet — balanced analysis, recommended default.",
+            "Haiku — fast and cheap, lighter analysis."
           ],
-          "description": "Analysis depth mode used for new sessions."
+          "description": "Model used for analysis. Passed directly to the backend."
         },
-        "literaryCritic.modelSlotFrontier": {
-          "type": "string",
-          "default": "",
-          "order": 42,
-          "description": "Model assigned to the frontier slot (critic tasks). Leave empty to use backend defaults."
-        },
-        "literaryCritic.modelSlotDeep": {
-          "type": "string",
-          "default": "",
-          "order": 43,
-          "description": "Model assigned to the deep checker slot. Leave empty to use backend defaults."
-        },
-        "literaryCritic.modelSlotQuick": {
-          "type": "string",
-          "default": "",
-          "order": 44,
-          "description": "Model assigned to the quick checker slot. Leave empty to use backend defaults."
-        },
-        "literaryCritic.sceneFolder": {
+        "litCritic.sceneFolder": {
           "type": "string",
           "default": "text",
           "order": 47,
           "description": "Scene folder (relative to project root) used for scene discovery and refresh watchers."
         },
-        "literaryCritic.sceneExtensions": {
+        "litCritic.sceneExtensions": {
           "type": "array",
           "items": {
             "type": "string"
@@ -214,22 +192,22 @@
           "order": 48,
           "description": "Scene file extensions (without dots) used for scene discovery and refresh watchers."
         },
-        "literaryCritic.autoStartServer": {
+        "litCritic.autoStartServer": {
           "type": "boolean",
           "default": true,
           "description": "Automatically start the backend server on activation"
         },
-        "literaryCritic.disableProblemDecorationColors": {
+        "litCritic.disableProblemDecorationColors": {
           "type": "boolean",
           "default": false,
           "description": "When enabled, lit-critic sets workspace setting workbench.editor.decorations.colors=false to reduce diagnostic color tinting in file/tab labels. Affects all diagnostics in this workspace."
         },
-        "literaryCritic.disableProblemDecorationBadges": {
+        "litCritic.disableProblemDecorationBadges": {
           "type": "boolean",
           "default": false,
           "description": "When enabled, lit-critic sets workspace setting workbench.editor.decorations.badges=false. Affects all diagnostics in this workspace."
         },
-        "literaryCritic.knowledgeReviewPassTrigger": {
+        "litCritic.knowledgeReviewPassTrigger": {
           "type": "string",
           "default": "always",
           "enum": [
@@ -244,7 +222,7 @@
           ],
           "description": "Controls when the knowledge reconciliation review pass runs after a refresh."
         },
-        "literaryCritic.autoUpdateOnSave": {
+        "litCritic.autoUpdateOnSave": {
           "type": "string",
           "default": "off",
           "enum": [
@@ -276,139 +254,145 @@
     "views": {
       "lit-critic-review": [
         {
-          "id": "literaryCritic.knowledgeReviewView",
+          "id": "litCritic.knowledgeReviewView",
           "name": "Knowledge Review",
           "type": "webview",
-          "when": "literaryCritic.serverRunning"
+          "when": "litCritic.serverRunning"
         },
         {
-          "id": "literaryCritic.discussionView",
+          "id": "litCritic.discussionView",
           "name": "Findings Review",
           "type": "webview",
-          "when": "literaryCritic.serverRunning"
+          "when": "litCritic.serverRunning"
         }
       ],
       "lit-critic": [
         {
-          "id": "literaryCritic.scenes",
+          "id": "litCritic.scenes",
           "name": "Inputs"
         },
         {
-          "id": "literaryCritic.indexes",
+          "id": "litCritic.indexes",
           "name": "Knowledge"
         },
         {
-          "id": "literaryCritic.sessions",
-          "name": "Sessions"
+          "id": "litCritic.sessions",
+          "name": "Analysis"
         },
         {
-          "id": "literaryCritic.findings",
+          "id": "litCritic.findings",
           "name": "Findings"
         },
         {
-          "id": "literaryCritic.learning",
+          "id": "litCritic.learning",
           "name": "Learning"
         }
       ]
     },
     "menus": {
-      "commandPalette": [
-        {
-          "command": "literaryCritic.revealSessionInTree",
-          "when": "false"
-        }
-      ],
+      "commandPalette": [],
       "view/item/context": [
         {
-          "command": "literaryCritic.deleteLearningEntry",
-          "when": "view == literaryCritic.learning && viewItem == learningEntry",
+          "command": "litCritic.deleteLearningEntry",
+          "when": "view == litCritic.learning && viewItem == learningEntry",
           "group": "inline"
         },
         {
-          "command": "literaryCritic.resetKnowledgeOverride",
-          "when": "view == literaryCritic.indexes && viewItem == knowledgeEntityOverridden",
+          "command": "litCritic.resetKnowledgeOverride",
+          "when": "view == litCritic.indexes && viewItem == knowledgeEntityOverridden",
           "group": "inline"
         },
         {
-          "command": "literaryCritic.deleteKnowledgeEntity",
-          "when": "view == literaryCritic.indexes && viewItem == knowledgeEntity",
+          "command": "litCritic.deleteKnowledgeEntity",
+          "when": "view == litCritic.indexes && viewItem == knowledgeEntity",
           "group": "inline"
         },
         {
-          "command": "literaryCritic.deleteKnowledgeEntity",
-          "when": "view == literaryCritic.indexes && viewItem == knowledgeEntityOverridden",
+          "command": "litCritic.deleteKnowledgeEntity",
+          "when": "view == litCritic.indexes && viewItem == knowledgeEntityOverridden",
           "group": "inline"
         },
         {
-          "command": "literaryCritic.toggleEntityLock",
-          "when": "view == literaryCritic.indexes && viewItem == knowledgeEntity",
+          "command": "litCritic.toggleEntityLock",
+          "when": "view == litCritic.indexes && viewItem == knowledgeEntity",
           "group": "inline"
         },
         {
-          "command": "literaryCritic.toggleEntityLock",
-          "when": "view == literaryCritic.indexes && viewItem == knowledgeEntityOverridden",
+          "command": "litCritic.toggleEntityLock",
+          "when": "view == litCritic.indexes && viewItem == knowledgeEntityOverridden",
           "group": "inline"
         },
         {
-          "command": "literaryCritic.toggleEntityLock",
-          "when": "view == literaryCritic.indexes && viewItem == knowledgeEntityLocked",
+          "command": "litCritic.toggleEntityLock",
+          "when": "view == litCritic.indexes && viewItem == knowledgeEntityLocked",
           "group": "inline"
         },
         {
-          "command": "literaryCritic.keepFlaggedEntity",
-          "when": "view == literaryCritic.indexes && viewItem == knowledgeEntityFlagged",
+          "command": "litCritic.keepFlaggedEntity",
+          "when": "view == litCritic.indexes && viewItem == knowledgeEntityFlagged",
           "group": "inline@1"
         },
         {
-          "command": "literaryCritic.deleteFlaggedEntity",
-          "when": "view == literaryCritic.indexes && viewItem == knowledgeEntityFlagged",
+          "command": "litCritic.deleteFlaggedEntity",
+          "when": "view == litCritic.indexes && viewItem == knowledgeEntityFlagged",
           "group": "inline@2"
         },
         {
-          "command": "literaryCritic.renameScene",
-          "when": "view == literaryCritic.scenes && viewItem == sceneProjection",
+          "command": "litCritic.renameScene",
+          "when": "view == litCritic.scenes && viewItem == sceneProjection",
           "group": "1_modification@1"
+        },
+        {
+          "command": "litCritic.deleteSceneAnalysis",
+          "when": "view == litCritic.sessions && viewItem == analysisScene",
+          "group": "inline"
         }
       ],
       "view/title": [
         {
-          "command": "literaryCritic.refreshKnowledge",
-          "when": "view == literaryCritic.indexes",
+          "command": "litCritic.resetAllKnowledge",
+          "when": "view == litCritic.indexes",
           "group": "navigation"
         },
         {
-          "command": "literaryCritic.analyze",
-          "when": "view == literaryCritic.sessions",
+          "command": "litCritic.refreshKnowledge",
+          "when": "view == litCritic.indexes",
           "group": "navigation"
         },
         {
-          "command": "literaryCritic.selectModel",
-          "when": "view == literaryCritic.sessions",
+          "command": "litCritic.resetAllAnalysis",
+          "when": "view == litCritic.sessions",
           "group": "navigation"
         },
         {
-          "command": "literaryCritic.deleteSession",
-          "when": "view == literaryCritic.sessions",
+          "command": "litCritic.analyze",
+          "when": "view == litCritic.sessions",
           "group": "navigation"
         },
         {
-          "command": "literaryCritic.refreshLearning",
-          "when": "view == literaryCritic.learning",
+          "command": "litCritic.selectModel",
+          "when": "view == litCritic.sessions",
           "group": "navigation"
         },
         {
-          "command": "literaryCritic.exportLearning",
-          "when": "view == literaryCritic.learning",
+          "command": "litCritic.refreshLearning",
+          "when": "view == litCritic.learning",
           "group": "navigation"
         },
         {
-          "command": "literaryCritic.resetLearning",
-          "when": "view == literaryCritic.learning"
+          "command": "litCritic.exportLearning",
+          "when": "view == litCritic.learning",
+          "group": "navigation"
+        },
+        {
+          "command": "litCritic.resetLearning",
+          "when": "view == litCritic.learning",
+          "group": "navigation"
         }
       ],
       "editor/title": [
         {
-          "command": "literaryCritic.analyze",
+          "command": "litCritic.analyze",
           "when": "resourceExtname == .txt",
           "group": "navigation"
         }
@@ -416,13 +400,13 @@
     },
     "keybindings": [
       {
-        "command": "literaryCritic.analyze",
+        "command": "litCritic.analyze",
         "key": "ctrl+shift+l",
         "mac": "cmd+shift+l",
         "when": "editorTextFocus"
       },
       {
-        "command": "literaryCritic.nextFinding",
+        "command": "litCritic.nextFinding",
         "key": "ctrl+shift+]",
         "mac": "cmd+shift+]",
         "when": "editorTextFocus"
@@ -430,7 +414,7 @@
     ],
     "colors": [
       {
-        "id": "literaryCritic.authorOverrideForeground",
+        "id": "litCritic.authorOverrideForeground",
         "description": "Color for locked knowledge entries (tree view) and overridden fields (knowledge review panel).",
         "defaults": {
           "dark": "#C8A84B",
@@ -440,7 +424,7 @@
         }
       },
       {
-        "id": "literaryCritic.flaggedForReviewForeground",
+        "id": "litCritic.flaggedForReviewForeground",
         "description": "Color for knowledge entries flagged for review by the reconciliation pass.",
         "defaults": {
           "dark": "#E0943A",
@@ -450,7 +434,7 @@
         }
       },
       {
-        "id": "literaryCritic.overriddenForeground",
+        "id": "litCritic.overriddenForeground",
         "description": "Color for knowledge entries that have author overrides applied.",
         "defaults": {
           "dark": "#5BAFAF",
@@ -460,7 +444,7 @@
         }
       },
       {
-        "id": "literaryCritic.staleForeground",
+        "id": "litCritic.staleForeground",
         "description": "Color for stale inputs, knowledge entries, and sessions in tree views.",
         "defaults": {
           "dark": "#CB6B6B",
@@ -477,7 +461,7 @@
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "package": "npx @vscode/vsce package",
-    "test": "mocha --exit --require ts-node/register \"../tests/vscode-extension/**/*.ts\""
+    "test": "mocha"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

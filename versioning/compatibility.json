@@ -1,25 +1,22 @@
 {
   "components": {
-    "contracts_v1": "1.2.1",
-    "core": "2.0.1",
-    "platform": "2.17.4",
-    "cli": "2.9.1",
-    "web": "2.13.4",
-    "vscode_extension": "2.20.1"
+    "contracts_v1": "3.0.0",
+    "core": "5.0.1",
+    "orchestrator": "5.0.1",
+    "api": "6.1.0",
+    "vscode_extension": "5.1.1"
   },
   "compatibility": {
-    "platform": {
-      "core_major": 2,
-      "contracts_v1_major": 1
+    "orchestrator": {
+      "core_major": 5,
+      "contracts_v1_major": 3
     },
-    "cli": {
-      "platform_major": 2
-    },
-    "web": {
-      "platform_major": 2
+    "api": {
+      "orchestrator_major": 5
     },
     "vscode_extension": {
-      "platform_major": 2
+      "api_major": 6
     }
-  }
+  },
+  "release_intent": null
 }

@@ -1,6 +1,6 @@
 # Your First Review
 
-This guide walks through an actual review session from start to finish. We'll use VS Code, which is the recommended interface, and then show the same thing in the Web UI and CLI.
+This guide walks through an actual review session from start to finish using VS Code, the primary interface.
 
 ---
 
@@ -34,7 +34,7 @@ After installation, reload VS Code.
 
 Open the folder that contains your `CANON.md` — not the lit-critic installation folder, your actual novel folder. VS Code detects the presence of `CANON.md` and activates lit-critic automatically. You'll see the **lit-critic** icon appear in the Activity Bar on the left.
 
-> **If your novel project is outside the lit-critic installation folder**, you need to tell the extension where lit-critic lives. Open VS Code Settings (`Ctrl+,`), search for `literaryCritic.repoPath`, and set it to the full path of your lit-critic installation directory (the folder containing `lit-critic-web.py`).
+> **If your novel project is outside the lit-critic installation folder**, you need to tell the extension where lit-critic lives. Open VS Code Settings (`Ctrl+,`), search for `litCritic.repoPath`, and set it to the full path of your lit-critic installation directory (the folder containing `lit-critic-server.py`).
 
 ### 3. Start the analysis
 
@@ -95,36 +95,6 @@ When all findings have been addressed, lit-critic generates a **session summary*
 
 ---
 
-## In the Web UI
-
-Start the web server from the lit-critic directory:
-
-```bash
-python lit-critic-web.py
-```
-
-Open http://localhost:8000 in your browser.
-
-On the main screen, select your scene file and your project folder. Choose an analysis mode (start with **quick** for your first session). Click **Analyze**.
-
-Progress bars show each lens completing. When analysis finishes, findings appear one by one in a chat-style interface. Use the **Accept**, **Reject**, and **Next** buttons, or type in the chat box to discuss a finding.
-
-The Web UI is particularly useful for **multi-scene sessions** — use "Add another scene" to analyze several consecutive scenes in one pass for arc-level continuity checks.
-
----
-
-## On the CLI
-
-From the lit-critic directory:
-
-```bash
-python -m cli sessions start --scene ~/my-novel/text/01.01.01_opening.txt --project ~/my-novel/ --mode quick
-```
-
-Findings appear in the terminal, one at a time. Press **Enter** to move to the next finding. Type anything to start a discussion. Type `quit` to stop (the session is saved).
-
----
-
 ## Choosing an analysis mode
 
 | Mode | What it means | When to use it |
@@ -148,6 +118,6 @@ See **[Understanding Findings](understanding-findings.md)** for a fuller guide t
 
 ## After your first session
 
-Run **Refresh Knowledge** from the Knowledge view toolbar in VS Code (or `python -m cli knowledge refresh --project ~/my-novel/` from the terminal). This extracts characters, terms, narrative threads, and timeline entries from your scene and stores them. Future reviews will use this knowledge to catch continuity issues across scenes.
+Run **Refresh Knowledge** from the Knowledge view toolbar in VS Code. This extracts characters, terms, narrative threads, and timeline entries from your scene and stores them. Future reviews will use this knowledge to catch continuity issues across scenes.
 
 See **[Knowledge and Continuity](knowledge-and-continuity.md)** for details on how this works.

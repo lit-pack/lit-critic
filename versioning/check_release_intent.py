@@ -23,9 +23,8 @@ IGNORED_FILENAMES: frozenset[str] = frozenset({"README.md", "LICENSE", "CHANGELO
 COMPONENT_PREFIXES: dict[str, tuple[str, ...]] = {
     "contracts_v1": ("contracts/v1/",),
     "core": ("core/",),
-    "platform": ("lit_platform/", "pyproject.toml"),
-    "cli": ("cli/", "lit-critic.py"),
-    "web": ("web/", "lit-critic-web.py"),
+    "orchestrator": ("orchestrator/", "pyproject.toml"),
+    "api": ("api/", "lit-critic-server.py"),
     "vscode_extension": ("vscode-extension/",),
 }
 

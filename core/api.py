@@ -9,13 +9,11 @@ from core import __version__ as CORE_VERSION
 from contracts.v1.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
-    DiscussRequest,
-    DiscussResponse,
     ReEvaluateFindingRequest,
     ReEvaluateFindingResponse,
 )
-from lit_platform.runtime.config import resolve_api_key, resolve_model
-from lit_platform.runtime.llm.factory import create_client
+from orchestrator.runtime.config import resolve_api_key, resolve_model
+from orchestrator.runtime.llm.factory import create_client
 
 app = FastAPI(
     title="lit-critic-core",
@@ -67,23 +65,6 @@ async def analyze_v1(request: AnalyzeRequest) -> AnalyzeResponse:
         }
     )
     return await core_service.analyze(request, client=client)
-
-
-@app.post("/v1/discuss", response_model=DiscussResponse)
-async def discuss_v1(request: DiscussRequest) -> DiscussResponse:
-    """Discuss a finding using condensed context in the v1 contract."""
-    discussion_client, resolved_model_id = _resolve_client_and_model_id(
-        request.model_settings.discussion_model,
-        request.model_settings.api_keys,
-    )
-    request = request.model_copy(
-        update={
-            "model_settings": request.model_settings.model_copy(
-                update={"discussion_model": resolved_model_id}
-            )
-        }
-    )
-    return await core_service.discuss(request, discussion_client=discussion_client)
 
 
 @app.post("/v1/re-evaluate-finding", response_model=ReEvaluateFindingResponse)

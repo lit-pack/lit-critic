@@ -46,6 +46,7 @@ export class KnowledgeTreeProvider implements vscode.TreeDataProvider<KnowledgeT
     private _flaggedEntityKeys = new Set<string>();
     private _staleEntityKeys = new Set<string>();
     private _allEntitiesStale = false;
+    private _orphanedSceneKeys: Set<string> = new Set<string>();
 
     setStaleEntityKeys(keys: Set<string>): void {
         this._staleEntityKeys = new Set(keys);
@@ -54,6 +55,11 @@ export class KnowledgeTreeProvider implements vscode.TreeDataProvider<KnowledgeT
 
     setAllEntitiesStale(value: boolean): void {
         this._allEntitiesStale = value;
+        this._onDidChangeTreeData.fire();
+    }
+
+    setOrphanedSceneKeys(keys: Set<string>): void {
+        this._orphanedSceneKeys = new Set(keys);
         this._onDidChangeTreeData.fire();
     }
 
@@ -120,6 +126,7 @@ export class KnowledgeTreeProvider implements vscode.TreeDataProvider<KnowledgeT
         this._entityItemCache.clear();
         this._categoryGroupItemCache.clear();
         this._flaggedEntityKeys.clear();
+        this._orphanedSceneKeys.clear();
         this._onDidChangeTreeData.fire();
     }
 
@@ -220,10 +227,12 @@ export class KnowledgeTreeProvider implements vscode.TreeDataProvider<KnowledgeT
                 // Recompute volatile flags from current state so the rendered item
                 // always reflects the latest flagged/stale status, regardless of
                 // whether setFlaggedEntities() was called before or after refresh().
+                const sceneFilename = toOptionalString(entity.payload.entity['scene_filename']);
                 const livePayload: KnowledgeEntityTreeItemPayload = {
                     ...entity.payload,
                     flagged: this.isFlagged(entity.payload.category, entity.payload.entityKey),
                     stale: this._allEntitiesStale || this._staleEntityKeys.has(`${entity.payload.category}:${entity.payload.entityKey}`),
+                    orphaned: sceneFilename !== undefined && isSceneOrphaned(sceneFilename, this._orphanedSceneKeys),
                 };
                 const item = new EntityItem(livePayload, index);
                 this._entityItemCache.set(`${livePayload.category}:${livePayload.entityKey}`, item);
@@ -308,22 +317,28 @@ export class EntityItem extends vscode.TreeItem {
     constructor(public readonly payload: KnowledgeEntityTreeItemPayload, index: number) {
         super(payload.label, vscode.TreeItemCollapsibleState.None);
         this.id = `knowledge:entity:${payload.category}:${payload.entityKey}:${index}`;
-        this.contextValue = payload.flagged
-            ? 'knowledgeEntityFlagged'
-            : payload.locked
-                ? 'knowledgeEntityLocked'
-                : payload.hasOverrides
-                    ? 'knowledgeEntityOverridden'
-                    : 'knowledgeEntity';
-        this.iconPath = payload.flagged
-            ? new vscode.ThemeIcon('warning')
-            : payload.stale
-                ? new vscode.ThemeIcon('warning')
+        this.contextValue = payload.orphaned
+            ? 'knowledgeEntityOrphaned'
+            : payload.flagged
+                ? 'knowledgeEntityFlagged'
                 : payload.locked
-                    ? new vscode.ThemeIcon('lock')
-                    : new vscode.ThemeIcon('symbol-property');
-        // resourceUri drives FileDecoration color. Priority: stale > flagged > locked > overridden.
-        if (payload.stale) {
+                    ? 'knowledgeEntityLocked'
+                    : payload.hasOverrides
+                        ? 'knowledgeEntityOverridden'
+                        : 'knowledgeEntity';
+        this.iconPath = payload.orphaned
+            ? new vscode.ThemeIcon('circle-slash')
+            : payload.flagged
+                ? new vscode.ThemeIcon('warning')
+                : payload.stale
+                    ? new vscode.ThemeIcon('warning')
+                    : payload.locked
+                        ? new vscode.ThemeIcon('lock')
+                        : new vscode.ThemeIcon('symbol-property');
+        // resourceUri drives FileDecoration color. Priority: orphaned > stale > flagged > locked > overridden.
+        if (payload.orphaned) {
+            this.resourceUri = vscode.Uri.parse(`knowledge-orphaned://${payload.category}/${encodeURIComponent(payload.entityKey)}`);
+        } else if (payload.stale) {
             this.resourceUri = vscode.Uri.parse(`source-stale://${payload.category}/${encodeURIComponent(payload.entityKey)}`);
         } else if (payload.flagged) {
             this.resourceUri = vscode.Uri.parse(`knowledge-flagged://${payload.category}/${encodeURIComponent(payload.entityKey)}`);
@@ -335,7 +350,7 @@ export class EntityItem extends vscode.TreeItem {
         this.description = getEntityDescription(payload);
         this.tooltip = getEntityTooltip(payload);
         this.command = {
-            command: 'literaryCritic.openKnowledgeReviewPanel',
+            command: 'litCritic.openKnowledgeReviewPanel',
             title: 'Review Knowledge Entry',
             arguments: [payload],
         };
@@ -375,6 +390,7 @@ function getEntityKey(category: KnowledgeCategoryKey, entity: Record<string, unk
 
 function getEntityDescription(payload: KnowledgeEntityTreeItemPayload): string | undefined {
     const parts: string[] = [];
+    if (payload.orphaned) { parts.push('⚠ scene not found'); }
     if (payload.stale) { parts.push('stale'); }
     if (payload.flagged) { parts.push('flagged'); }
     if (payload.locked) { parts.push('locked'); }
@@ -385,9 +401,11 @@ function getEntityDescription(payload: KnowledgeEntityTreeItemPayload): string |
 function getEntityTooltip(payload: KnowledgeEntityTreeItemPayload): string {
     const summaryLines = getEntitySummaryLines(payload.entity)
         .map(([field, value]) => `${field}: ${value}`);
-    const status = payload.hasOverrides
-        ? `Author-corrected (${payload.overrideCount} override${payload.overrideCount === 1 ? '' : 's'})`
-        : 'Extracted';
+    const status = payload.orphaned
+        ? 'Orphaned (⚠ scene not found)'
+        : payload.hasOverrides
+            ? `Author-corrected (${payload.overrideCount} override${payload.overrideCount === 1 ? '' : 's'})`
+            : 'Extracted';
 
     return [
         `${toCategoryLabel(payload.category)}: ${payload.label}`,
@@ -427,4 +445,19 @@ function toOptionalString(value: unknown): string | undefined {
     }
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Returns true if `sceneFilename` (basename or relative path) matches any key
+ * in `orphanedKeys`. The orphaned scene key from the API is a relative path
+ * like "text/she_wakes_up.md"; the entity field may store only the basename.
+ */
+function isSceneOrphaned(sceneFilename: string, orphanedKeys: ReadonlySet<string>): boolean {
+    for (const key of orphanedKeys) {
+        if (key === sceneFilename) { return true; }
+        // key = "text/she_wakes_up.md", sceneFilename = "she_wakes_up.md"
+        const base = key.includes('/') ? key.slice(key.lastIndexOf('/') + 1) : key;
+        if (base === sceneFilename) { return true; }
+    }
+    return false;
 }

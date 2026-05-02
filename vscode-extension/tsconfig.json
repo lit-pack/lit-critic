@@ -12,5 +12,5 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "exclude": ["node_modules", "out", "test"]
+  "exclude": ["node_modules", "out", "tests"]
 }

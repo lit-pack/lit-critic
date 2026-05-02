@@ -1,5 +1,5 @@
 import { KnowledgeEntityTreeItemPayload } from '../types';
-import { WorkflowDeps } from './sessionWorkflowController';
+import { WorkflowDeps } from './workflowController';
 
 // ---------------------------------------------------------------------------
 // Helper: resolve payload from various item shapes
@@ -230,5 +230,33 @@ export async function cmdResetKnowledgeOverride(item: any, deps: WorkflowDeps): 
         const msg = err instanceof Error ? err.message : String(err);
         void deps.ui.showErrorMessage(`lit-critic: ${msg}`);
         return false;
+    }
+}
+
+export async function cmdResetAllKnowledge(deps: WorkflowDeps): Promise<void> {
+    const projectPath = deps.detectProjectPath();
+    if (!projectPath) {
+        void deps.ui.showErrorMessage(
+            'lit-critic: Could not detect project directory (no CANON.md found in workspace).'
+        );
+        return;
+    }
+
+    const answer = await deps.ui.showWarningMessage(
+        'Reset all knowledge? This will delete all extracted entities, overrides and review flags. This cannot be undone.',
+        true,
+        'Reset',
+    );
+    if (answer !== 'Reset') {
+        return;
+    }
+
+    try {
+        await deps.getApiClient().resetAllKnowledge(projectPath);
+        await refreshKnowledgeTree(projectPath, deps);
+        void deps.ui.showInformationMessage('All knowledge has been reset.');
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        void deps.ui.showErrorMessage(`lit-critic: ${msg}`);
     }
 }

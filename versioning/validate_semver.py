@@ -59,9 +59,8 @@ def main() -> int:
     required_components = {
         "contracts_v1",
         "core",
-        "platform",
-        "cli",
-        "web",
+        "orchestrator",
+        "api",
         "vscode_extension",
     }
 
@@ -110,13 +109,13 @@ def main() -> int:
                     False,
                 ),
                 (
-                    "lit_platform/__init__.py",
+                    "orchestrator/__init__.py",
                     _extract_regex(
-                        root / "lit_platform" / "__init__.py",
+                        root / "orchestrator" / "__init__.py",
                         r'__version__\s*=\s*"([^"]+)"',
-                        "platform __version__",
+                        "orchestrator __version__",
                     ),
-                    components.get("platform", ""),
+                    components.get("orchestrator", ""),
                     True,
                 ),
                 (
@@ -126,68 +125,28 @@ def main() -> int:
                         r'\[project\].*?\nversion\s*=\s*"([^"]+)"',
                         "pyproject project.version",
                     ),
-                    components.get("platform", ""),
+                    components.get("orchestrator", ""),
                     True,
                 ),
                 (
-                    "cli/__init__.py",
+                    "api/__init__.py",
                     _extract_regex(
-                        root / "cli" / "__init__.py",
+                        root / "api" / "__init__.py",
                         r'__version__\s*=\s*"([^"]+)"',
-                        "cli __version__",
+                        "api __version__",
                     ),
-                    components.get("cli", ""),
+                    components.get("api", ""),
                     True,
                 ),
                 (
-                    "web/__init__.py",
+                    "api/app.py (FastAPI version)",
                     _extract_regex(
-                        root / "web" / "__init__.py",
-                        r'__version__\s*=\s*"([^"]+)"',
-                        "web __version__",
-                    ),
-                    components.get("web", ""),
-                    True,
-                ),
-                (
-                    "web/app.py (FastAPI version)",
-                    _extract_regex(
-                        root / "web" / "app.py",
+                        root / "api" / "app.py",
                         r'version\s*=\s*(WEB_VERSION)',
-                        "web FastAPI app version binding",
+                        "api FastAPI app version binding",
                     ),
                     "WEB_VERSION",
                     False,
-                ),
-                (
-                    "web/templates/index.html footer",
-                    _extract_regex(
-                        root / "web" / "templates" / "index.html",
-                        r"lit-critic v([^\s]+)",
-                        "web index footer version",
-                    ),
-                    components.get("web", ""),
-                    True,
-                ),
-                (
-                    "web/templates/sessions.html footer",
-                    _extract_regex(
-                        root / "web" / "templates" / "sessions.html",
-                        r"lit-critic v([^\s]+)",
-                        "web sessions footer version",
-                    ),
-                    components.get("web", ""),
-                    True,
-                ),
-                (
-                    "web/templates/learning.html footer",
-                    _extract_regex(
-                        root / "web" / "templates" / "learning.html",
-                        r"lit-critic v([^\s]+)",
-                        "web learning footer version",
-                    ),
-                    components.get("web", ""),
-                    True,
                 ),
                 (
                     "vscode-extension/package.json",
@@ -216,22 +175,27 @@ def main() -> int:
 
     # Compatibility matrix major-version rules.
     try:
-        platform_rules = compatibility_rules.get("platform", {})
+        platform_rules = compatibility_rules.get("orchestrator", {})
         if platform_rules.get("core_major") != _major(components["core"]):
             errors.append(
-                "compatibility.platform.core_major does not match components.core major"
+                "compatibility.orchestrator.core_major does not match components.core major"
             )
         if platform_rules.get("contracts_v1_major") != _major(components["contracts_v1"]):
             errors.append(
-                "compatibility.platform.contracts_v1_major does not match components.contracts_v1 major"
+                "compatibility.orchestrator.contracts_v1_major does not match components.contracts_v1 major"
             )
 
-        for client in ("cli", "web", "vscode_extension"):
-            client_rules = compatibility_rules.get(client, {})
-            if client_rules.get("platform_major") != _major(components["platform"]):
-                errors.append(
-                    f"compatibility.{client}.platform_major does not match components.platform major"
-                )
+        api_rules = compatibility_rules.get("api", {})
+        if api_rules.get("orchestrator_major") != _major(components["orchestrator"]):
+            errors.append(
+                "compatibility.api.orchestrator_major does not match components.orchestrator major"
+            )
+
+        ext_rules = compatibility_rules.get("vscode_extension", {})
+        if ext_rules.get("api_major") != _major(components["api"]):
+            errors.append(
+                "compatibility.vscode_extension.api_major does not match components.api major"
+            )
     except (KeyError, ValueError) as exc:
         errors.append(f"Invalid compatibility matrix: {exc}")
 

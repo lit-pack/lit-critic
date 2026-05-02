@@ -309,6 +309,7 @@ export function createFreshMockVscode() {
     return {
         languages: {
             createDiagnosticCollection: (name: string) => new MockDiagnosticCollection(),
+            registerCodeActionsProvider: (_selector: any, _provider: any, _metadata?: any) => ({ dispose: () => {} }),
         },
     window: {
         createStatusBarItem: (alignment: number, priority: number) => new MockStatusBarItem(),
@@ -492,6 +493,24 @@ export function createFreshMockVscode() {
         Global: 1,
         Workspace: 2,
         WorkspaceFolder: 3,
+    },
+    CodeActionKind: {
+        Empty: { value: '' },
+        QuickFix: { value: 'quickfix' },
+        Refactor: { value: 'refactor' },
+        RefactorExtract: { value: 'refactor.extract' },
+        RefactorInline: { value: 'refactor.inline' },
+        Source: { value: 'source' },
+    },
+    CodeAction: class {
+        title: string;
+        kind: any;
+        command?: any;
+        isPreferred?: boolean;
+        constructor(title: string, kind?: any) {
+            this.title = title;
+            this.kind = kind;
+        }
     },
         EventEmitter: MockEventEmitter,
     };
@@ -741,58 +760,6 @@ export function createStagedHealthCheck(failCount: number = 1) {
 // ---------------------------------------------------------------------------
 // Phase 2: Management test fixtures
 // ---------------------------------------------------------------------------
-
-export const sampleSessionSummary = {
-    id: 1,
-    scene_path: '/test/scene01.txt',
-    status: 'completed',
-    model: 'sonnet',
-    created_at: '2026-02-10T10:00:00',
-    completed_at: '2026-02-10T10:30:00',
-    total_findings: 5,
-    accepted_count: 3,
-    rejected_count: 2,
-    withdrawn_count: 0,
-};
-
-export const sampleSessionDetail = {
-    id: 1,
-    scene_path: '/test/scene01.txt',
-    status: 'completed',
-    model: 'sonnet',
-    created_at: '2026-02-10T10:00:00',
-    completed_at: '2026-02-10T10:30:00',
-    total_findings: 2,
-    accepted_count: 1,
-    rejected_count: 1,
-    withdrawn_count: 0,
-    findings: [
-        {
-            number: 1,
-            severity: 'critical',
-            lens: 'prose',
-            location: 'Paragraph 1',
-            evidence: 'Test evidence',
-            impact: 'Test impact',
-            options: ['Fix it'],
-            status: 'accepted',
-            line_start: 5,
-            line_end: 10,
-        },
-        {
-            number: 2,
-            severity: 'major',
-            lens: 'structure',
-            location: 'Scene opening',
-            evidence: 'Missing goal',
-            impact: 'Reader confusion',
-            options: ['Add goal'],
-            status: 'rejected',
-            line_start: 1,
-            line_end: 3,
-        },
-    ],
-};
 
 export const sampleLearningData = {
     project_name: 'Test Novel',

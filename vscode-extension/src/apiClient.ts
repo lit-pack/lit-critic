@@ -9,19 +9,11 @@ import * as http from 'http';
 import {
     AnalysisSummary,
     AnalysisProgressEvent,
-    CheckSessionResponse,
-    DiscussResponse,
-    FindingResponse,
-    AdvanceResponse,
+    ExplainResponse,
+    Finding,
     ServerConfig,
-    SessionInfo,
-    SessionSummary,
-    SessionDetail,
     LearningData,
-    ResumeErrorDetail,
-    ScenePathRecoverySelection,
     RepoPreflightStatus,
-    RepoPathInvalidDetail,
     IndexAuditResponse,
     SceneAuditResponse,
     SceneProjectionResponse,
@@ -39,7 +31,19 @@ import {
     SceneRefreshResponse,
     SceneOrphanPurgeResponse,
     InputStalenessResponse,
+    AnalyzableScenesResponse,
 } from './types';
+
+/** Response shape for GET /api/findings/current. */
+export type CurrentFindingsResponse = {
+    scenes: Record<string, {
+        snapshot_id: number;
+        depth_mode: string;
+        model: string;
+        created_at: string;
+        findings: Finding[];
+    }>;
+};
 
 type LegacyIndexInsertBucket = {
     added?: unknown[];
@@ -75,7 +79,7 @@ export class ApiClient {
     // Generic HTTP helpers
     // ------------------------------------------------------------------
 
-    private request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    private request<T>(method: string, path: string, body?: unknown, timeoutMs: number = 300_000): Promise<T> {
         return new Promise((resolve, reject) => {
             const url = new URL(path, this.baseUrl);
             const bodyStr = body !== undefined ? JSON.stringify(body) : undefined;
@@ -89,7 +93,7 @@ export class ApiClient {
                     'Accept': 'application/json',
                     ...(bodyStr ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
                 },
-                timeout: 300000, // 5 minutes — analysis can be slow
+                timeout: timeoutMs,
             };
 
             const req = http.request(options, (res) => {
@@ -139,42 +143,6 @@ export class ApiClient {
             }
             req.end();
         });
-    }
-
-    private extractResumeErrorDetail(message: string): ResumeErrorDetail | null {
-        const match = message.match(/^HTTP\s+\d+:\s+(\{.*\})$/);
-        if (!match) {
-            return null;
-        }
-
-        try {
-            const detail = JSON.parse(match[1]) as ResumeErrorDetail;
-            if (detail && detail.code === 'scene_path_not_found') {
-                return detail;
-            }
-        } catch {
-            // ignore parse failures
-        }
-
-        return null;
-    }
-
-    private extractRepoPathInvalidDetail(message: string): RepoPathInvalidDetail | null {
-        const match = message.match(/^HTTP\s+\d+:\s+(\{.*\})$/);
-        if (!match) {
-            return null;
-        }
-
-        try {
-            const detail = JSON.parse(match[1]) as RepoPathInvalidDetail;
-            if (detail && detail.code === 'repo_path_invalid') {
-                return detail;
-            }
-        } catch {
-            // ignore parse failures
-        }
-
-        return null;
     }
 
     /**
@@ -285,16 +253,17 @@ export class ApiClient {
         projectPath: string,
         apiKey?: string,
         scenePaths?: string[],
-        mode?: 'quick' | 'deep',
+        mode?: string,
     ): Promise<AnalysisSummary> {
         const effectivePaths = scenePaths && scenePaths.length > 0 ? scenePaths : [scenePath];
+        // Deep analysis can take 20-30 minutes — use a 45-minute timeout.
         return this.request<AnalysisSummary>('POST', '/api/analyze', {
             scene_path: effectivePaths[0],
             scene_paths: effectivePaths,
             project_path: projectPath,
             ...(apiKey ? { api_key: apiKey } : {}),
             ...(mode ? { mode } : {}),
-        });
+        }, 2_700_000);
     }
 
     /** POST /api/config/models — persist model-slot configuration. */
@@ -319,10 +288,11 @@ export class ApiClient {
 
     /** POST /api/analyze/rerun — re-run analysis for current active session context. */
     async rerunAnalysis(projectPath: string, apiKey?: string): Promise<AnalysisSummary> {
+        // Rerun can also be slow for large scenes — use the same 45-minute timeout.
         return this.request<AnalysisSummary>('POST', '/api/analyze/rerun', {
             project_path: projectPath,
             ...(apiKey ? { api_key: apiKey } : {}),
-        });
+        }, 2_700_000);
     }
 
     /** GET /api/analyze/progress — SSE stream for analysis progress. */
@@ -336,286 +306,31 @@ export class ApiClient {
         );
     }
 
-    private buildScenePathRecoveryPayload(selection?: ScenePathRecoverySelection): Record<string, unknown> {
-        if (!selection) {
-            return {};
-        }
+    // ------------------------------------------------------------------
+    // Management API endpoints
+    // ------------------------------------------------------------------
 
-        return {
-            ...(selection.scenePathOverride ? { scene_path_override: selection.scenePathOverride } : {}),
-            ...(selection.scenePathOverrides ? { scene_path_overrides: selection.scenePathOverrides } : {}),
-        };
+    /** GET /api/findings/current — latest findings per scene in a single call. */
+    async getCurrentFindings(projectPath: string): Promise<CurrentFindingsResponse> {
+        return this.request<CurrentFindingsResponse>('GET', `/api/findings/current?project_path=${encodeURIComponent(projectPath)}`);
     }
 
-    /** POST /api/resume — resume a saved session. */
-    async resume(projectPath: string, apiKey?: string, recoverySelection?: ScenePathRecoverySelection): Promise<AnalysisSummary> {
-        return this.request<AnalysisSummary>('POST', '/api/resume', {
-            project_path: projectPath,
-            ...(apiKey ? { api_key: apiKey } : {}),
-            ...this.buildScenePathRecoveryPayload(recoverySelection),
-        });
+    /** DELETE /api/knowledge — delete ALL extracted knowledge, overrides and review flags. */
+    async resetAllKnowledge(projectPath: string): Promise<{ reset: boolean }> {
+        return this.request<{ reset: boolean }>('DELETE', `/api/knowledge?project_path=${encodeURIComponent(projectPath)}`);
     }
 
-    /** POST /api/resume-session — resume a specific active session by id. */
-    async resumeSessionById(
-        projectPath: string,
-        sessionId: number,
-        apiKey?: string,
-        recoverySelection?: ScenePathRecoverySelection,
-    ): Promise<AnalysisSummary> {
-        return this.request<AnalysisSummary>('POST', '/api/resume-session', {
-            project_path: projectPath,
-            session_id: sessionId,
-            ...(apiKey ? { api_key: apiKey } : {}),
-            ...this.buildScenePathRecoveryPayload(recoverySelection),
-        });
+    /** DELETE /api/analysis/snapshots — purge all analysis_snapshot rows, resetting scene status to not_analyzed. */
+    async deleteAllAnalysisSnapshots(projectPath: string): Promise<{ deleted: boolean }> {
+        return this.request<{ deleted: boolean }>('DELETE', `/api/analysis/snapshots?project_path=${encodeURIComponent(projectPath)}`);
     }
 
-    /** POST /api/view-session — load any session for viewing/interaction. */
-    async viewSession(
-        projectPath: string,
-        sessionId: number,
-        apiKey?: string,
-        recoverySelection?: ScenePathRecoverySelection,
-        reopen: boolean = false,
-    ): Promise<AnalysisSummary> {
-        const response = await this.request<AnalysisSummary>('POST', '/api/view-session', {
-            project_path: projectPath,
-            session_id: sessionId,
-            ...(apiKey ? { api_key: apiKey } : {}),
-            ...(reopen ? { reopen: true } : {}),
-            ...this.buildScenePathRecoveryPayload(recoverySelection),
-        });
-
-        return response;
-    }
-
-    async resumeWithRecovery(
-        projectPath: string,
-        apiKey: string | undefined,
-        getScenePathOverride: (detail: ResumeErrorDetail) => Promise<ScenePathRecoverySelection | undefined>,
-    ): Promise<AnalysisSummary> {
-        try {
-            return await this.resume(projectPath, apiKey);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            const detail = this.extractResumeErrorDetail(message);
-            if (!detail) {
-                throw err;
-            }
-
-            const selection = await getScenePathOverride(detail);
-            if (!selection || (!selection.scenePathOverride?.trim() && !selection.scenePathOverrides)) {
-                throw new Error('Resume cancelled by user.');
-            }
-
-            const normalized: ScenePathRecoverySelection = {
-                ...(selection.scenePathOverride ? { scenePathOverride: selection.scenePathOverride.trim() } : {}),
-                ...(selection.scenePathOverrides ? { scenePathOverrides: selection.scenePathOverrides } : {}),
-            };
-
-            return this.resume(projectPath, apiKey, normalized);
-        }
-    }
-
-    async resumeWithRepoPathRecovery(
-        projectPath: string,
-        apiKey: string | undefined,
-        repoPath: string,
-    ): Promise<AnalysisSummary> {
-        try {
-            return await this.resume(projectPath, apiKey);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            const detail = this.extractRepoPathInvalidDetail(message);
-            if (!detail) {
-                throw err;
-            }
-
-            await this.updateRepoPath(repoPath);
-            return this.resume(projectPath, apiKey);
-        }
-    }
-
-    async resumeSessionByIdWithRecovery(
-        projectPath: string,
-        sessionId: number,
-        apiKey: string | undefined,
-        getScenePathOverride: (detail: ResumeErrorDetail) => Promise<ScenePathRecoverySelection | undefined>,
-    ): Promise<AnalysisSummary> {
-        try {
-            return await this.resumeSessionById(projectPath, sessionId, apiKey);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            const detail = this.extractResumeErrorDetail(message);
-            if (!detail) {
-                throw err;
-            }
-
-            const selection = await getScenePathOverride(detail);
-            if (!selection || (!selection.scenePathOverride?.trim() && !selection.scenePathOverrides)) {
-                throw new Error('Resume cancelled by user.');
-            }
-
-            const normalized: ScenePathRecoverySelection = {
-                ...(selection.scenePathOverride ? { scenePathOverride: selection.scenePathOverride.trim() } : {}),
-                ...(selection.scenePathOverrides ? { scenePathOverrides: selection.scenePathOverrides } : {}),
-            };
-
-            return this.resumeSessionById(projectPath, sessionId, apiKey, normalized);
-        }
-    }
-
-    async viewSessionWithRecovery(
-        projectPath: string,
-        sessionId: number,
-        apiKey: string | undefined,
-        getScenePathOverride: (detail: ResumeErrorDetail) => Promise<ScenePathRecoverySelection | undefined>,
-        reopen: boolean = false,
-    ): Promise<AnalysisSummary> {
-        try {
-            return await this.viewSession(projectPath, sessionId, apiKey, undefined, reopen);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            const detail = this.extractResumeErrorDetail(message);
-            if (!detail) {
-                throw err;
-            }
-
-            const selection = await getScenePathOverride(detail);
-            if (!selection || (!selection.scenePathOverride?.trim() && !selection.scenePathOverrides)) {
-                throw new Error('View session cancelled by user.');
-            }
-
-            const normalized: ScenePathRecoverySelection = {
-                ...(selection.scenePathOverride ? { scenePathOverride: selection.scenePathOverride.trim() } : {}),
-                ...(selection.scenePathOverrides ? { scenePathOverrides: selection.scenePathOverrides } : {}),
-            };
-
-            return this.viewSession(projectPath, sessionId, apiKey, normalized, reopen);
-        }
-    }
-
-    /** POST /api/check-session — check if a saved session exists. */
-    async checkSession(projectPath: string): Promise<CheckSessionResponse> {
-        return this.request<CheckSessionResponse>('POST', '/api/check-session', {
-            project_path: projectPath,
-        });
-    }
-
-    /** GET /api/session — get current session info. */
-    async getSession(): Promise<SessionInfo> {
-        return this.request<SessionInfo>('GET', '/api/session');
-    }
-
-    /** GET /api/scene — get the scene text content. */
-    async getScene(): Promise<{ content: string }> {
-        return this.request<{ content: string }>('GET', '/api/scene');
-    }
-
-    /** GET /api/finding — get the current finding. */
-    async getCurrentFinding(): Promise<FindingResponse> {
-        return this.request<FindingResponse>('GET', '/api/finding');
-    }
-
-    /** POST /api/finding/continue — advance to next finding. */
-    async continueFinding(): Promise<AdvanceResponse> {
-        return this.request<AdvanceResponse>('POST', '/api/finding/continue');
-    }
-
-    /** POST /api/finding/accept — accept and advance. */
-    async acceptFinding(): Promise<AdvanceResponse> {
-        return this.request<AdvanceResponse>('POST', '/api/finding/accept');
-    }
-
-    /** POST /api/finding/reject — reject and advance. */
-    async rejectFinding(reason: string = ''): Promise<AdvanceResponse> {
-        return this.request<AdvanceResponse>('POST', '/api/finding/reject', { reason });
-    }
-
-    /** POST /api/finding/discuss — send a discussion message. */
-    async discuss(message: string): Promise<DiscussResponse> {
-        return this.request<DiscussResponse>('POST', '/api/finding/discuss', { message });
-    }
-
-    /** POST /api/finding/discuss/stream — SSE stream for discussion. */
-    streamDiscuss(
-        message: string,
-        onToken: (text: string) => void,
-        onDone: (result: DiscussResponse) => void,
-        onError: (err: Error) => void,
-        onSceneChange?: (report: { changed: boolean; adjusted: number; stale: number; re_evaluated: Array<{ finding_number: number; status: string }> }) => void,
-    ): () => void {
-        let receivedDone = false;
-
-        return this.streamSSE<{ type: string; text?: string } & Partial<DiscussResponse>>(
-            'POST',
-            '/api/finding/discuss/stream',
-            (event) => {
-                if (event.type === 'scene_change' && onSceneChange) {
-                    onSceneChange(event as unknown as { changed: boolean; adjusted: number; stale: number; re_evaluated: Array<{ finding_number: number; status: string }> });
-                } else if (event.type === 'token' && event.text) {
-                    onToken(event.text);
-                } else if (event.type === 'done') {
-                    receivedDone = true;
-                    onDone(event as unknown as DiscussResponse);
-                }
-            },
-            () => {
-                // Transport-level stream end — if we never got a 'done' SSE
-                // event, the stream closed unexpectedly (backend crash, etc.)
-                if (!receivedDone) {
-                    onError(new Error('Stream ended without a response. The server may have encountered an error.'));
-                }
-            },
-            onError,
-            { message },
+    /** DELETE /api/analysis/snapshots/by-scene — delete the analysis snapshot and findings for a specific scene. */
+    async deleteAnalysisForScene(projectPath: string, scenePath: string): Promise<{ deleted: boolean; count: number }> {
+        return this.request<{ deleted: boolean; count: number }>(
+            'DELETE',
+            `/api/analysis/snapshots/by-scene?project_path=${encodeURIComponent(projectPath)}&scene_path=${encodeURIComponent(scenePath)}`,
         );
-    }
-
-    /** POST /api/finding/ambiguity — mark intentional or accidental. */
-    async markAmbiguity(intentional: boolean): Promise<Record<string, unknown>> {
-        return this.request<Record<string, unknown>>('POST', '/api/finding/ambiguity', { intentional });
-    }
-
-    /** POST /api/finding/goto — jump to a specific finding by index. */
-    async gotoFinding(index: number): Promise<AdvanceResponse> {
-        return this.request<AdvanceResponse>('POST', '/api/finding/goto', { index });
-    }
-
-    /** POST /api/finding/review — re-check current finding against scene edits. */
-    async reviewFinding(): Promise<FindingResponse> {
-        return this.request<FindingResponse>('POST', '/api/finding/review');
-    }
-
-    /** POST /api/finding/skip-to/{lens} — skip to a specific lens group. */
-    async skipToLens(lens: 'structure' | 'coherence'): Promise<FindingResponse> {
-        return this.request<FindingResponse>('POST', `/api/finding/skip-to/${lens}`);
-    }
-
-    /** DELETE /api/session — clear the session. */
-    async clearSession(): Promise<{ deleted: boolean }> {
-        return this.request<{ deleted: boolean }>('DELETE', '/api/session');
-    }
-
-    // ------------------------------------------------------------------
-    // Management API endpoints (Phase 2)
-    // ------------------------------------------------------------------
-
-    /** GET /api/sessions — list all sessions for a project. */
-    async listSessions(projectPath: string): Promise<{ sessions: SessionSummary[] }> {
-        const response = await this.request<{ sessions: SessionSummary[] }>('GET', `/api/sessions?project_path=${encodeURIComponent(projectPath)}`);
-        return response;
-    }
-
-    /** GET /api/sessions/{id} — get detailed info for a session. */
-    async getSessionDetail(sessionId: number, projectPath: string): Promise<SessionDetail> {
-        return this.request<SessionDetail>('GET', `/api/sessions/${sessionId}?project_path=${encodeURIComponent(projectPath)}`);
-    }
-
-    /** DELETE /api/sessions/{id} — delete a session. */
-    async deleteSession(sessionId: number, projectPath: string): Promise<{ deleted: boolean; session_id: number }> {
-        return this.request<{ deleted: boolean; session_id: number }>('DELETE', `/api/sessions/${sessionId}?project_path=${encodeURIComponent(projectPath)}`);
     }
 
     /** GET /api/learning — get learning data for a project. */
@@ -798,6 +513,11 @@ export class ApiClient {
         return this.request<InputStalenessResponse>('GET', `/api/inputs/staleness?project_path=${encodeURIComponent(projectPath)}`);
     }
 
+    /** GET /api/scenes/analyzable — return scenes ready for analysis (extraction_due or extracted). */
+    async getAnalyzableScenes(projectPath: string): Promise<AnalyzableScenesResponse> {
+        return this.request<AnalyzableScenesResponse>('GET', `/api/scenes/analyzable?project_path=${encodeURIComponent(projectPath)}`);
+    }
+
     /**
      * Backward-compat shim for legacy command paths; slated for removal once callers are migrated.
      */
@@ -849,6 +569,30 @@ export class ApiClient {
             ...(model ? { model } : {}),
             ...(apiKey ? { api_key: apiKey } : {}),
         });
+    }
+
+    /**
+     * POST /api/findings/{findingId}/explain — one-shot LLM explanation for a finding.
+     *
+     * The client passes the full finding object and the relevant scene text.
+     * The server performs a single LLM query and returns an explanation.
+     * No state is modified; no learning signal is generated.
+     */
+    async explainFinding(
+        findingId: number,
+        finding: Finding,
+        sceneText: string,
+        depth: 'quick' | 'deep',
+        projectPath: string,
+    ): Promise<ExplainResponse> {
+        // Deep explanations use the frontier model — allow up to 5 minutes.
+        const timeoutMs = depth === 'deep' ? 300_000 : 60_000;
+        return this.request<ExplainResponse>(
+            'POST',
+            `/api/findings/${findingId}/explain?project_path=${encodeURIComponent(projectPath)}`,
+            { depth, finding, scene_text: sceneText },
+            timeoutMs,
+        );
     }
 
 }

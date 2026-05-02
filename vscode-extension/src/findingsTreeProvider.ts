@@ -3,16 +3,17 @@
  *
  * Tree structure:
  *   ▼ Prose (3 findings)
- *       ⚠️ #1 Major — Rhythm break at L042-L045    [pending]
- *       ℹ️ #3 Minor — Passive voice at L078         [accepted ✓]
+ *       ⚠️ #1 Major — Rhythm break at L042-L045    [active]
+ *       🔇 #3 Minor — Passive voice at L078         [silenced]
  *   ▼ Structure (2 findings)
- *       🔴 #2 Critical — Missing scene goal          [pending]
+ *       🔴 #2 Critical — Missing scene goal          [active]
  *
  * Click navigates to the line in the editor.
+ * Right-click on active findings shows silence actions (silence this / silence pattern).
  */
 
 import * as vscode from 'vscode';
-import { Finding, SessionSummary } from './types';
+import { AnalysisSnapshot, Finding } from './types';
 
 const FINDING_URI_SCHEME = 'lit-critic-finding';
 const TREE_COUNT_URI_SCHEME = 'lit-critic-count';
@@ -33,30 +34,19 @@ interface StatusVisual {
 }
 
 const STATUS_VISUALS: Record<string, StatusVisual> = {
-    'pending': {
-        priority: 0,
-    },
-    'escalated': {
-        priority: 1,
-    },
-    'discussed': {
-        priority: 2,
-    },
-    'revised': {
-        priority: 2,
-    },
-    'accepted': {
-        priority: 3,
-    },
-    'rejected': {
-        priority: 3,
-    },
-    'withdrawn': {
-        priority: 3,
-    },
-    'conceded': {
-        priority: 3,
-    },
+    // New model states
+    'active':    { priority: 0 },
+    'silenced':  { priority: 1 },
+    'resolved':  { priority: 2 },
+    // Legacy interactive states (backward compat with old sessions)
+    'pending':   { priority: 0 },
+    'escalated': { priority: 1 },
+    'discussed': { priority: 2 },
+    'revised':   { priority: 2 },
+    'accepted':  { priority: 3 },
+    'rejected':  { priority: 3 },
+    'withdrawn': { priority: 3 },
+    'conceded':  { priority: 3 },
 };
 
 const DEFAULT_STATUS_VISUAL: StatusVisual = {
@@ -76,7 +66,7 @@ const SEVERITY_PRIORITY: Record<string, number> = {
 };
 
 function getNormalizedStatus(status?: string): string {
-    return (status || 'pending').toLowerCase();
+    return (status || 'active').toLowerCase();
 }
 
 function getStatusVisual(status?: string): StatusVisual {
@@ -89,7 +79,9 @@ function getNormalizedSeverity(severity?: string): string {
 
 function isActiveStatus(status?: string): boolean {
     const normalized = getNormalizedStatus(status);
-    return normalized === 'pending' || normalized === 'escalated' || normalized === 'discussed' || normalized === 'revised';
+    // New model: active; legacy compat: pending and in-progress interactive statuses
+    return normalized === 'active' || normalized === 'pending' ||
+        normalized === 'escalated' || normalized === 'discussed' || normalized === 'revised';
 }
 
 function getSeverityColorId(severity?: string): string {
@@ -116,6 +108,10 @@ function getResolvedIcon(status?: string): vscode.ThemeIcon {
     const dimColor = new vscode.ThemeColor(RESOLVED_COLOR_ID);
     const resolvedStatus = getNormalizedStatus(status);
     const iconByStatus: Record<string, string> = {
+        // New model
+        silenced: 'mute',
+        resolved: 'check',
+        // Legacy interactive statuses
         accepted: 'pass',
         rejected: 'close',
         withdrawn: 'dash',
@@ -222,19 +218,23 @@ export class FindingsDecorationProvider implements vscode.FileDecorationProvider
     }
 
     private decorateFinding(params: URLSearchParams): vscode.FileDecoration | undefined {
-        const status = getNormalizedStatus(params.get('status') || 'pending');
+        const status = getNormalizedStatus(params.get('status') || 'active');
         const severity = getNormalizedSeverity(params.get('severity') || 'minor');
         const labelColorId = getLabelColorForFinding(status, severity);
         const color = toThemeColor(labelColorId);
 
-        if (status === 'pending') {
+        if (status === 'active' || status === 'pending') {
             return {
                 color,
-                tooltip: 'Pending',
+                tooltip: 'Active',
             };
         }
 
         const badges: Record<string, string> = {
+            // New model
+            silenced: 'S',
+            resolved: '✓',
+            // Legacy
             escalated: '!!',
             discussed: 'D',
             revised: 'R',
@@ -245,6 +245,10 @@ export class FindingsDecorationProvider implements vscode.FileDecorationProvider
         };
 
         const tooltips: Record<string, string> = {
+            // New model
+            silenced: 'Silenced',
+            resolved: 'Resolved',
+            // Legacy
             escalated: 'Escalated',
             discussed: 'Discussed',
             revised: 'Revised',
@@ -291,39 +295,61 @@ class EmptyStateItem extends vscode.TreeItem {
     }
 }
 
-export class SessionContextItem extends vscode.TreeItem {
-    readonly sessionId: number;
-
-    constructor(session: SessionSummary) {
-        const depthLabel = session.depth_mode
-            ? session.depth_mode.charAt(0).toUpperCase() + session.depth_mode.slice(1)
-            : 'Session';
-        const label = `Session #${session.id} · ${depthLabel} · ${session.status}`;
-        super(label, vscode.TreeItemCollapsibleState.None);
-        this.sessionId = session.id;
-        this.contextValue = 'sessionContext';
-        this.iconPath = new vscode.ThemeIcon('pin');
-        this.tooltip = `Viewing findings for Session #${session.id} (${depthLabel}, ${session.status}). Click to reveal in Sessions tree.`;
-        this.command = {
-            command: 'literaryCritic.revealSessionInTree',
-            title: 'Reveal session in Sessions tree',
-            arguments: [session.id],
-        };
+/**
+ * Header item shown at the top of the findings tree when displaying a
+ * filtered lens view (scene + lens combination from the Analysis tree).
+ */
+export class LensFilterContextItem extends vscode.TreeItem {
+    constructor(scenePath: string, lens: string) {
+        const fileName = scenePath.replace(/\\/g, '/').split('/').pop() || scenePath;
+        const lensLabel = lens.charAt(0).toUpperCase() + lens.slice(1);
+        super(`${fileName} · ${lensLabel}`, vscode.TreeItemCollapsibleState.None);
+        this.contextValue = 'lensFilterContext';
+        this.iconPath = new vscode.ThemeIcon(LENS_ICONS[lens.toLowerCase()] || 'symbol-namespace');
+        this.tooltip = `Filtered view: ${lens} findings for ${fileName}`;
     }
 }
 
-export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingTreeItem | LensGroupItem | EmptyStateItem | SessionContextItem> {
+/**
+ * Header item displayed at the top of the findings tree showing the source snapshot.
+ */
+export class SnapshotContextItem extends vscode.TreeItem {
+    readonly snapshotId: number;
+
+    constructor(snapshot: AnalysisSnapshot) {
+        const depthLabel = snapshot.depth_mode === 'quick' ? 'Quick' : 'Deep';
+        const sceneCount = snapshot.scene_paths.length;
+        const scenesLabel = sceneCount === 1 ? '1 scene' : `${sceneCount} scenes`;
+        const label = `Snapshot #${snapshot.id} · ${depthLabel} · ${scenesLabel}`;
+        super(label, vscode.TreeItemCollapsibleState.None);
+        this.snapshotId = snapshot.id;
+        this.contextValue = 'snapshotContext';
+        this.iconPath = new vscode.ThemeIcon('pin');
+        this.tooltip = new vscode.MarkdownString(
+            `**Analysis Snapshot #${snapshot.id}**\n\n` +
+            `Depth: ${depthLabel}  \nScenes: ${scenesLabel}  \n` +
+            `Active findings: ${snapshot.active_count}  \nSilenced: ${snapshot.silenced_count}  \n` +
+            `Created: ${snapshot.created_at}`,
+        );
+    }
+}
+
+type FindingsTreeNode = FindingTreeItem | LensGroupItem | EmptyStateItem | SnapshotContextItem | LensFilterContextItem;
+
+export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingsTreeNode> {
     private _onDidChangeTreeData = new vscode.EventEmitter<FindingTreeItem | LensGroupItem | undefined | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
     private findings: Finding[] = [];
     private scenePath: string | null = null;
-    private currentIndex: number = -1;
-    private sessionContext: SessionSummary | null = null;
+    private snapshotContext: AnalysisSnapshot | null = null;
     private cacheDirty = true;
     private lensItems: LensGroupItem[] = [];
     private findingItemsByLens: Map<string, FindingTreeItem[]> = new Map();
-    private findingItemsByIndex: Map<number, FindingTreeItem> = new Map();
+    private findingItemsByNumber: Map<number, FindingTreeItem> = new Map();
+
+    /** When set, the tree shows only findings for a specific scene+lens (filtered detail view). */
+    private lensFilter: { scenePath: string; lens: string } | null = null;
 
     constructor(private readonly decorationProvider?: FindingsDecorationProvider) {}
 
@@ -333,31 +359,46 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingTree
         this.decorationProvider?.fireChange();
     }
 
-    getCurrentFindingItem(): FindingTreeItem | undefined {
-        this.ensureCache();
-        return this.findingItemsByIndex.get(this.currentIndex);
-    }
-
     /**
      * Update the findings list and refresh the tree.
+     * scenePath is used as the fallback navigation target when a finding lacks its own scene_path.
+     * @param _currentIndex Deprecated — ignored in the new model. Present for backward compat.
      */
-    setFindings(findings: Finding[], scenePath: string, currentIndex: number = -1): void {
+    setFindings(findings: Finding[], scenePath?: string, _currentIndex?: number): void {
         this.findings = findings;
-        this.scenePath = scenePath;
-        this.currentIndex = currentIndex;
+        this.scenePath = scenePath ?? null;
         this.notifyTreeChanged();
     }
 
     /**
-     * Update the current finding index (highlight which one is active).
+     * @deprecated No-op in the new model. Finding navigation is driven by SSE events.
+     * Kept for backward compat with the legacy session workflow controller.
      */
-    setCurrentIndex(index: number): void {
-        this.currentIndex = index;
+    setCurrentIndex(_index: number): void {
+        // No-op: the new model does not track a "current finding index"
+    }
+
+    /**
+     * @deprecated Returns undefined in the new model.
+     * Kept for backward compat with the legacy workbench presenter.
+     */
+    getCurrentFindingItem(): FindingTreeItem | undefined {
+        return undefined;
+    }
+
+    /**
+     * Update the findings from an analysis snapshot (new model primary path).
+     * Sets both the snapshot context header and the findings list in one call.
+     */
+    setFromSnapshot(snapshot: AnalysisSnapshot): void {
+        this.snapshotContext = snapshot;
+        this.findings = snapshot.findings;
+        this.scenePath = snapshot.scene_paths[0] ?? null;
         this.notifyTreeChanged();
     }
 
     /**
-     * Update a single finding in the list (after status change).
+     * Update a single finding in the list (e.g., after a silence action changes its status).
      */
     updateFinding(finding: Finding): void {
         const idx = this.findings.findIndex(f => f.number === finding.number);
@@ -368,21 +409,50 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingTree
     }
 
     /**
-     * Set the session context header displayed at the top of the findings tree.
-     * Pass null to show the "No session selected" empty state.
+     * Set the snapshot context header at the top of the findings tree.
+     * Pass null to clear it (shows empty state when no findings are loaded).
      */
-    setSessionContext(session: SessionSummary | null): void {
-        this.sessionContext = session;
+    setSnapshotContext(snapshot: AnalysisSnapshot | null): void {
+        this.snapshotContext = snapshot;
         this.notifyTreeChanged();
     }
 
     /**
-     * Clear all findings.
+     * Look up a single finding by its number.
+     * Returns undefined if the finding is not in the current list.
+     */
+    getFinding(number: number): Finding | undefined {
+        return this.findings.find(f => f.number === number);
+    }
+
+    /**
+     * Return all currently loaded findings (read-only copy).
+     */
+    getAllFindings(): Finding[] {
+        return [...this.findings];
+    }
+
+    /**
+     * Display a filtered view: only the given findings for a specific scene+lens.
+     * Shows a LensFilterContextItem header followed by flat FindingTreeItem nodes
+     * (no lens groups). Clears snapshot/session context headers.
+     */
+    showLensFindings(findings: Finding[], scenePath: string, lens: string): void {
+        this.findings = findings;
+        this.scenePath = scenePath;
+        this.snapshotContext = null;
+        this.lensFilter = { scenePath, lens };
+        this.notifyTreeChanged();
+    }
+
+    /**
+     * Clear all findings and context headers.
      */
     clear(): void {
         this.findings = [];
         this.scenePath = null;
-        this.currentIndex = -1;
+        this.snapshotContext = null;
+        this.lensFilter = null;
         this.notifyTreeChanged();
     }
 
@@ -390,12 +460,17 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingTree
         return element;
     }
 
-    getParent(element: FindingTreeItem | LensGroupItem | SessionContextItem | EmptyStateItem): LensGroupItem | undefined {
-        if (element instanceof SessionContextItem || element instanceof EmptyStateItem) {
+    getParent(element: FindingsTreeNode): LensGroupItem | undefined {
+        if (element instanceof SnapshotContextItem
+            || element instanceof EmptyStateItem || element instanceof LensFilterContextItem) {
             return undefined;
         }
         this.ensureCache();
         if (element instanceof LensGroupItem) {
+            return undefined;
+        }
+        // In filtered mode, findings are flat (no parent lens group)
+        if (this.lensFilter) {
             return undefined;
         }
         // FindingTreeItem — return its parent LensGroupItem
@@ -403,22 +478,31 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingTree
         return this.lensItems.find((item) => item.lens === lens);
     }
 
-    getChildren(element?: FindingTreeItem | LensGroupItem | SessionContextItem | EmptyStateItem): (FindingTreeItem | LensGroupItem | EmptyStateItem | SessionContextItem)[] {
+    getChildren(element?: FindingsTreeNode): FindingsTreeNode[] {
         this.ensureCache();
 
         if (!element) {
-            // Root level — group by lens
-            const contextItem = this.sessionContext ? new SessionContextItem(this.sessionContext) : null;
-            if (this.lensItems.length === 0) {
-                if (!this.sessionContext) {
-                    return [new EmptyStateItem('No session selected')];
+            // Filtered lens mode — flat list with context header
+            if (this.lensFilter) {
+                const header = new LensFilterContextItem(this.lensFilter.scenePath, this.lensFilter.lens);
+                const allItems = this.findingItemsByLens.get(this.lensFilter.lens.toLowerCase())
+                    || Array.from(this.findingItemsByNumber.values());
+                if (allItems.length === 0) {
+                    return [header, new EmptyStateItem('No findings for this lens')];
                 }
-                return [contextItem!, new EmptyStateItem('No findings in this session')];
+                return [header, ...allItems];
             }
-            if (contextItem) {
-                return [contextItem, ...this.lensItems];
+
+            // Root level — build context header + lens groups
+            const header = this.snapshotContext ? new SnapshotContextItem(this.snapshotContext) : null;
+
+            if (this.lensItems.length === 0) {
+                if (!header) {
+                    return [new EmptyStateItem('No analysis snapshot loaded')];
+                }
+                return [header, new EmptyStateItem('No findings in this snapshot')];
             }
-            return this.lensItems;
+            return header ? [header, ...this.lensItems] : this.lensItems;
         }
 
         if (element instanceof LensGroupItem) {
@@ -452,9 +536,7 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingTree
         const order = ['prose', 'structure', 'logic', 'clarity', 'continuity', 'dialogue'];
         const lensItems: LensGroupItem[] = [];
         const findingItemsByLens = new Map<string, FindingTreeItem[]>();
-        const findingItemsByIndex = new Map<number, FindingTreeItem>();
-
-        const currentFindingNumber = this.findings[this.currentIndex]?.number;
+        const findingItemsByNumber = new Map<number, FindingTreeItem>();
 
         const createLensAndFindings = (lens: string, findings: Finding[]): void => {
             if (!findings || findings.length === 0) {
@@ -465,33 +547,27 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingTree
             const maxSeverity = getMaxActiveSeverity(findings);
             lensItems.push(new LensGroupItem(lens, findings.length, activeCount, maxSeverity));
 
-            const findingItems = this.findings
-                .map((finding, index) => ({ finding, index }))
-                .filter(({ finding }) => finding.lens.toLowerCase() === lens)
+            const findingItems = findings
+                .slice()
                 .sort((a, b) => {
                     const statusPriority =
-                        getStatusVisual(a.finding.status).priority - getStatusVisual(b.finding.status).priority;
+                        getStatusVisual(a.status).priority - getStatusVisual(b.status).priority;
                     if (statusPriority !== 0) {
                         return statusPriority;
                     }
 
                     const severityPriority =
-                        (SEVERITY_PRIORITY[getNormalizedSeverity(a.finding.severity)] ?? Number.MAX_SAFE_INTEGER) -
-                        (SEVERITY_PRIORITY[getNormalizedSeverity(b.finding.severity)] ?? Number.MAX_SAFE_INTEGER);
+                        (SEVERITY_PRIORITY[getNormalizedSeverity(a.severity)] ?? Number.MAX_SAFE_INTEGER) -
+                        (SEVERITY_PRIORITY[getNormalizedSeverity(b.severity)] ?? Number.MAX_SAFE_INTEGER);
                     if (severityPriority !== 0) {
                         return severityPriority;
                     }
 
-                    return a.finding.number - b.finding.number;
+                    return a.number - b.number;
                 })
-                .map(({ finding, index }) => {
-                    const item = new FindingTreeItem(
-                        finding,
-                        index,
-                        this.scenePath,
-                        finding.number === currentFindingNumber,
-                    );
-                    findingItemsByIndex.set(index, item);
+                .map((finding) => {
+                    const item = new FindingTreeItem(finding, this.scenePath);
+                    findingItemsByNumber.set(finding.number, item);
                     return item;
                 });
 
@@ -512,7 +588,7 @@ export class FindingsTreeProvider implements vscode.TreeDataProvider<FindingTree
 
         this.lensItems = lensItems;
         this.findingItemsByLens = findingItemsByLens;
-        this.findingItemsByIndex = findingItemsByIndex;
+        this.findingItemsByNumber = findingItemsByNumber;
         this.cacheDirty = false;
     }
 }
@@ -537,16 +613,18 @@ export class LensGroupItem extends vscode.TreeItem {
 /**
  * Tree item representing a single finding (leaf node).
  *
- * Clicking a finding in the tree fires `literaryCritic.selectFinding`,
- * which navigates to the line in the editor AND opens the Discussion
- * Panel for that finding — regardless of the sequential review order.
+ * Clicking a finding navigates to its line in the editor.
+ * Right-click context menu (via contextValue) offers silence actions for active findings.
+ *
+ * contextValue values:
+ *   - 'finding'          — active finding (can be silenced)
+ *   - 'finding-silenced' — silenced finding (rule can be managed)
+ *   - 'finding-resolved' — resolved finding (text changed; read-only)
  */
 export class FindingTreeItem extends vscode.TreeItem {
     readonly finding: Finding;
-    /** Index of this finding in the flat findings array. */
-    readonly findingIndex: number;
 
-    constructor(finding: Finding, index: number, scenePath: string | null, isCurrent: boolean) {
+    constructor(finding: Finding, scenePath: string | null) {
         const lineRange = finding.line_start !== null
             ? finding.line_end !== null && finding.line_end !== finding.line_start
                 ? `L${finding.line_start}-L${finding.line_end}`
@@ -558,21 +636,31 @@ export class FindingTreeItem extends vscode.TreeItem {
         super(label, vscode.TreeItemCollapsibleState.None);
 
         this.finding = finding;
-        this.findingIndex = index;
-        const preview = finding.evidence.slice(0, 60) || finding.location;
-        this.description = isCurrent ? `${preview} · current` : preview;
+        this.description = finding.evidence.slice(0, 60) || finding.location;
         this.tooltip = this.buildTooltip(finding);
         this.iconPath = getFindingIcon(finding);
-        this.contextValue = 'finding';
         this.resourceUri = buildFindingUri(finding);
         this.id = `finding:${finding.number}`;
 
-        // Click opens the discussion panel for this finding (and navigates to its line)
-        this.command = {
-            command: 'literaryCritic.selectFinding',
-            title: 'Select finding',
-            arguments: [index],
-        };
+        // contextValue drives which context menu items are shown
+        const status = getNormalizedStatus(finding.status);
+        if (status === 'silenced') {
+            this.contextValue = 'finding-silenced';
+        } else if (status === 'resolved') {
+            this.contextValue = 'finding-resolved';
+        } else {
+            this.contextValue = 'finding';
+        }
+
+        // Click navigates to the finding's line in the editor
+        const targetPath = finding.scene_path ?? scenePath;
+        if (targetPath && finding.line_start !== null) {
+            this.command = {
+                command: 'litCritic.navigateToFinding',
+                title: 'Navigate to finding',
+                arguments: [finding],
+            };
+        }
     }
 
     private buildTooltip(finding: Finding): vscode.MarkdownString {

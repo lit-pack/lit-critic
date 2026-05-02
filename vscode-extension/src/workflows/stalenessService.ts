@@ -1,7 +1,6 @@
 import { ApiClient } from '../apiClient';
 import { ScenesTreeProvider } from '../scenesTreeProvider';
 import { KnowledgeTreeProvider } from '../knowledgeTreeProvider';
-import { SessionsTreeProvider } from '../sessionsTreeProvider';
 import { StalenessRegistry } from './stalenessRegistry';
 
 // ---------------------------------------------------------------------------
@@ -15,7 +14,7 @@ export interface StalenessServiceDeps {
     stalenessRegistry: StalenessRegistry;
     scenesTreeProvider: ScenesTreeProvider;
     knowledgeTreeProvider: KnowledgeTreeProvider;
-    sessionsTreeProvider: SessionsTreeProvider;
+    log?: (msg: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -35,6 +34,11 @@ export async function recheckStaleness(deps: StalenessServiceDeps): Promise<numb
 
     const client = deps.ensureApiClient();
     const result = await client.getInputStaleness(projectPath);
+    deps.log?.(
+        `[Staleness] response stale_inputs.length=${result.stale_inputs.length} ` +
+        `paths=${JSON.stringify(result.stale_inputs.map((e) => e.path))} ` +
+        `projectPath=${projectPath}`,
+    );
     deps.stalenessRegistry.update(result.stale_inputs);
 
     // Push stale input paths to ScenesTreeProvider
@@ -57,25 +61,15 @@ export async function recheckStaleness(deps: StalenessServiceDeps): Promise<numb
         deps.knowledgeTreeProvider.setStaleEntityKeys(staleEntityKeys);
     }
 
-    // Push stale session IDs to SessionsTreeProvider
-    const staleSessionIds = new Set<number>();
-    for (const entry of result.stale_inputs) {
-        for (const id of entry.affected_sessions) {
-            staleSessionIds.add(id);
-        }
-    }
-    deps.sessionsTreeProvider.setStaleSessions(staleSessionIds);
+    // Push orphaned scene keys to KnowledgeTreeProvider
+    const orphanedSceneKeys = new Set<string>(
+        (result.orphaned_scenes ?? []).map((e) => e.scene_key),
+    );
+    deps.knowledgeTreeProvider.setOrphanedSceneKeys(orphanedSceneKeys);
 
-    // Refresh all trees with latest data
-    deps.scenesTreeProvider.setApiClient(client);
-    deps.scenesTreeProvider.setProjectPath(projectPath);
-    await deps.scenesTreeProvider.refresh();
-    deps.knowledgeTreeProvider.setApiClient(client);
-    deps.knowledgeTreeProvider.setProjectPath(projectPath);
-    await deps.knowledgeTreeProvider.refresh();
-    deps.sessionsTreeProvider.setApiClient(client);
-    deps.sessionsTreeProvider.setProjectPath(projectPath);
-    await deps.sessionsTreeProvider.refresh();
-
+    // The set* calls above already fire _onDidChangeTreeData on each provider,
+    // causing VS Code to re-render badges using cached data. Full tree refreshes
+    // (fetching fresh data from the server) are the responsibility of the caller
+    // when data has actually changed (e.g. after knowledge refresh or analyze).
     return result.stale_inputs.length;
 }

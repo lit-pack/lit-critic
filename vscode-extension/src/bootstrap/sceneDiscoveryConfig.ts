@@ -57,7 +57,7 @@ export function normalizeSceneExtensions(value: string[] | undefined): string[] 
 // ---------------------------------------------------------------------------
 
 export function getSceneDiscoverySettingsFromConfig(): { sceneFolder: string; sceneExtensions: string[] } {
-    const config = vscode.workspace.getConfiguration('literaryCritic');
+    const config = vscode.workspace.getConfiguration('litCritic');
     const inspectFn = (config as any).inspect;
     const inspectedFolder = typeof inspectFn === 'function'
         ? inspectFn.call(config, 'sceneFolder')

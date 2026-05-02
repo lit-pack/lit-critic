@@ -1,103 +1,18 @@
 @@META
-ID: 01.01.01
-# ^ Format: Part.Chapter.Scene (e.g., 01.03.01, 02.05.02)
-# Keep IDs stable even if you rearrange scenes
-
-Part: 01
-# ^ Which part of your novel (01, 02, 03, etc.)
-
-Chapter: 01
-# ^ Which chapter within the part
-
-Scene: 01
-# ^ Which scene within the chapter
-
-Chrono: D0-T000
-# ^ Timeline position in YOUR chronology system
-# Examples: D0-T083, D3-Morning, Year_842_Spring
-# Document your system in CANON.md
-
-POV: [Character Name]
-# ^ The point-of-view character for this scene
-# Examples: Amelia, Third-omniscient, Dual-POV
-
-Tense: Past
-# ^ Narrative tense
-# Examples: Past, Present, Past (present=flashback rule)
-# Document tense rules in STYLE.md
-
-Location: [Place / Subplace]
-# ^ Where the scene takes place
-# Use hierarchical notation: House / Corridor, Ship / Engine Room
-# Be specific enough to track continuity
-
-Cast: [Character1]; [Character2]; [Character3]
-# ^ Characters present (semicolon-separated)
-# Include off-screen if relevant: George (off-screen voice)
-# For solo scenes: Amelia (alone)
-
-Objective: [What this scene accomplishes]
-# ^ One clause summarizing the scene's narrative purpose
-# Examples:
-#   - Amelia discovers the locked vault
-#   - Establish market chaos before attack
-#   - George confronts Lyra about betrayal
-
-Threats: [Active dangers/tensions]
-# ^ Semicolon-separated list of active conflicts
-# Examples:
-#   - Starvation; exposure; pursuer 2km behind
-#   - Lyra suspects Amelia's lie; vault timer running
-#   - None (recovery scene)
-
-Secrets: [Information asymmetries]
-# ^ What characters know that others don't
-# Examples:
-#   - Amelia knows George is dying; George hides this from Lyra
-#   - Reader knows vault is empty (Amelia doesn't)
-#   - None
-
-ContAnchors: [Hard facts: numbers, states, rules]
-# ^ **MOST IMPORTANT FIELD** Facts that must not drift
-# Include:
-#   - Numeric values: hematocrit=28%; 47_minutes_until_dawn
-#   - Binary states: vault_door=locked; engine=running
-#   - Rule invocations: Rule_3_invoked (no magic in sanctuary)
-# Use stable terms from GLOSSARY.md
-# Examples:
-#   - hematocrit=28%; vault_door=ajar; ward_strength=12%
-#   - soldier_count=12; distance_to_city=5km; time_remaining=30min
-
-Terms: [Specialized vocabulary]
-# ^ Semicolon-separated list of special terms used
-# Must match entries in GLOSSARY.md
-# Examples:
-#   - Breach Gates; hematocrit; sanctuary wards
-#   - None (mundane scene with no special terms)
-
-Threads: [Narrative threads]
-# ^ Semicolon-separated thread IDs from THREADS.md
-# Examples:
-#   - vault_mystery; George_secret; ward_collapse
-#   - None (opening scene, no threads yet)
-
-Prev: [Scene ID of previous scene]
-# ^ Previous scene in reading order
-# Examples: 01.02.05, None (if first scene)
-
-Next: [Scene ID of next scene]
-# ^ Next scene in reading order
-# Examples: 01.03.02, TBD (if not written yet)
+Prev: [previous-scene.txt  — or  None  if this is the first scene]
+Next: [next-scene.txt      — or  TBD   if the next scene isn't written yet]
 @@END
 
-[Your scene prose goes here, starting immediately after @@END]
+[Your scene prose goes here, immediately after @@END]
 
-[The @@META block above is for tooling and continuity—it will be 
-stripped during final compilation. Readers never see it.]
+[The @@META block above is for reading-order navigation — it will be
+stripped during final compilation. Readers never see it.
 
-[Write your scene naturally. The metadata helps you (and Literary 
-Critic) track continuity, but it doesn't constrain your prose.]
+Only two fields are needed:
+  Prev  — filename of the scene that comes before this one, or None
+  Next  — filename of the scene that comes after this one, or TBD
 
-[Remember to update TIMELINE.md, CANON.md, CAST.md, GLOSSARY.md, 
-THREADS.md, and STYLE.md as you introduce new facts, characters, 
-terms, and rules.]
+Use None (not "n/a", not "—") for the boundary at the start or end
+of your manuscript.  Use TBD when the adjacent scene simply isn't
+written yet.  Everything else (characters, terms, threads, timeline)
+is extracted automatically from your prose when you run Refresh Knowledge.]

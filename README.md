@@ -42,7 +42,7 @@ The last lens is different. It doesn't look for problems. It surfaces craft tech
 **1. Install**
 
 ```bash
-git clone https://github.com/alexisargyris/lit-critic.git
+git clone https://github.com/lit-pack/lit-critic.git
 cd lit-critic
 pip install -r requirements.txt
 ```
@@ -77,15 +77,9 @@ my-novel/
 
 Characters, terms, narrative threads, and timeline entries are extracted automatically from your prose — you don't maintain separate files for them.
 
-**4. Choose your interface**
+**4. Open your project in VS Code**
 
-| Interface | Good for | How to launch |
-|-----------|----------|---------------|
-| **VS Code** *(recommended)* | Working inside your editor | Install the extension, open your project folder |
-| **Web UI** | Multi-scene selection, browser-based workflow | `python lit-critic-web.py` → http://localhost:8000 |
-| **CLI** | Fast single-scene reviews from the terminal | `python -m cli sessions start --scene scene.txt --project ~/novel/ --mode quick` |
-
-The VS Code extension is the primary interface. It gives you squiggly underlines directly in your scene files, a sidebar for findings, and a discussion panel — all without leaving your editor. The Web UI and CLI cover all the same ground but are better suited to specific workflows.
+The VS Code extension is the primary interface. It gives you squiggly underlines directly in your scene files, a sidebar for findings, and a discussion panel — all without leaving your editor. Install the extension, then open the folder containing your `CANON.md`.
 
 **5. Run your first review (VS Code)**
 
@@ -127,7 +121,7 @@ Your novel can be in **any language** your chosen AI model supports — Greek, J
 ### 📖 Full Author Documentation
 
 - **[Setting Up Your Project](docs/user-guide/setting-up-your-project.md)** — Installation, project structure, scene files
-- **[Your First Review](docs/user-guide/your-first-review.md)** — Walkthrough for VS Code, Web, and CLI
+- **[Your First Review](docs/user-guide/your-first-review.md)** — Walkthrough for VS Code
 - **[Understanding Findings](docs/user-guide/understanding-findings.md)** — What findings look like and how to respond
 - **[Knowledge and Continuity](docs/user-guide/knowledge-and-continuity.md)** — CANON.md, STYLE.md, and auto-extracted knowledge
 - **[The Learning System](docs/user-guide/learning-system.md)** — How the tool adapts to your style over time
@@ -141,8 +135,8 @@ Your novel can be in **any language** your chosen AI model supports — Greek, J
 lit-critic is organized as three explicit layers:
 
 - **Core (`core/`)** — stateless reasoning endpoints (`/v1/analyze`, `/v1/discuss`, `/v1/re-evaluate-finding`)
-- **Platform (`lit_platform/`)** — session lifecycle, persistence, orchestration, retry/backoff
-- **Clients (`cli/`, `web/`, `vscode-extension/`)** — thin UX layers over Platform
+- **Platform (`orchestrator/`)** — session lifecycle, persistence, orchestration, retry/backoff
+- **API server (`web/`)** and **VS Code extension (`vscode-extension/`)** — thin client layers over Platform
 
 Session state, findings, and learning data are persisted in a per-project **SQLite database** (`.lit-critic.db`).
 
@@ -153,7 +147,7 @@ npm run install                    # Install Python + TypeScript dependencies
 npm test                           # Run all tests (Python + TypeScript)
 npm run release:check              # SemVer/compatibility checks
 npm run hooks:install              # Install local git hooks
-python lit-critic-web.py --reload  # Web UI with auto-reload
+python lit-critic-server.py --reload  # API server with auto-reload
 cd vscode-extension && code .      # VS Code extension development (then F5)
 ```
 

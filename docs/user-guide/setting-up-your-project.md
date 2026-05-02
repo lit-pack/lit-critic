@@ -40,7 +40,7 @@ export ANTHROPIC_API_KEY="your-key-here"
 ## Installing lit-critic
 
 ```bash
-git clone https://github.com/alexisargyris/lit-critic.git
+git clone https://github.com/lit-pack/lit-critic.git
 cd lit-critic
 pip install -r requirements.txt
 ```
@@ -136,7 +136,7 @@ lit-critic uses the filename as the scene's permanent identifier. Name your file
 ch03-showdown.txt
 ```
 
-**Important:** If you need to rename a scene file later, use the rename command rather than renaming it in your file explorer — otherwise lit-critic loses track of it. In VS Code, right-click the scene in the Inputs view → **Rename Scene**. From the terminal: `python -m cli scenes rename old-name.txt new-name.txt --project ~/my-novel/`.
+**Important:** If you need to rename a scene file later, use the rename command rather than renaming it in your file explorer — otherwise lit-critic loses track of it. In VS Code, right-click the scene in the Inputs view → **Rename Scene**.
 
 ### Inserting a new scene
 

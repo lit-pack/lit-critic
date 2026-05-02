@@ -77,23 +77,28 @@ export class OperationTracker implements vscode.Disposable {
             await completeUi();
 
             const durationMs = this.now() - start;
-            this.log('ok', profile.id, profile.title, durationMs, durationMs >= this.verySlowThresholdMs ? 'very-slow' : undefined);
+            this.logOperation('ok', profile.id, profile.title, durationMs, durationMs >= this.verySlowThresholdMs ? 'very-slow' : undefined);
             return result;
         } catch (error) {
             await completeUi();
 
             const durationMs = this.now() - start;
             const message = error instanceof Error ? error.message : String(error);
-            this.log('error', profile.id, profile.title, durationMs, message);
+            this.logOperation('error', profile.id, profile.title, durationMs, message);
             throw error;
         }
+    }
+
+    /** Write a timestamped line directly to the lit-critic output channel. */
+    log(message: string): void {
+        this.output.appendLine(`[${new Date().toISOString()}] ${message}`);
     }
 
     dispose(): void {
         this.output.dispose();
     }
 
-    private log(status: 'ok' | 'error', id: string, title: string, durationMs: number, detail?: string): void {
+    private logOperation(status: 'ok' | 'error', id: string, title: string, durationMs: number, detail?: string): void {
         const duration = Math.round(durationMs);
         const marker = status === 'error'
             ? 'ERROR'

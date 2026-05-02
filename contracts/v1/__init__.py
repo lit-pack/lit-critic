@@ -1,6 +1,6 @@
 """v1 contract schemas and compatibility adapters."""
 
-__version__ = "1.2.1"
+__version__ = "3.0.0"
 
 from .adapters import (
     adapt_analyze_request_to_legacy,

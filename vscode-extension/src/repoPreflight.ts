@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export const REPO_MARKER = 'lit-critic-web.py';
+export const REPO_MARKER = 'lit-critic-server.py';
 
 export interface RepoPathValidationResult {
     ok: boolean;

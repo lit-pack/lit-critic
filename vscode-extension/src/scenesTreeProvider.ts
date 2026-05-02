@@ -36,11 +36,31 @@ export class ScenesTreeProvider implements vscode.TreeDataProvider<ScenesTreeEle
     private projectPath: string | null = null;
     private apiClient: ApiClient | null = null;
     private staleInputPaths: Set<string> = new Set<string>();
+    // Bumped whenever staleness data changes; appended to SourceItem ids so
+    // VS Code rebuilds the TreeItem (and re-applies resourceUri for stale
+    // decoration) instead of reusing a cached item with a stale scheme URI.
+    private sourcesVersion = 0;
+    private log: ((msg: string) => void) | null = null;
+
+    setLogger(log: (msg: string) => void): void {
+        this.log = log;
+    }
 
     setStaleInputPaths(paths: Set<string>): void {
-        this.staleInputPaths = new Set(paths);
+        // Normalize to lowercase so comparisons are case-insensitive on
+        // Windows, where Python may return uppercase drive letters (e.g.
+        // "D:\...") while VS Code's Uri.file().fsPath lowercases them
+        // ("d:\...").
+        this.staleInputPaths = new Set([...paths].map((p) => p.toLowerCase()));
+        this.sourcesVersion += 1;
+        this.log?.(
+            `[ScenesTree] setStaleInputPaths size=${this.staleInputPaths.size} ` +
+            `contents=${JSON.stringify([...this.staleInputPaths])} ` +
+            `newVersion=${this.sourcesVersion}`,
+        );
         this._onDidChangeTreeData.fire();
     }
+
 
     setApiClient(client: ApiClient): void {
         this.apiClient = client;
@@ -91,12 +111,28 @@ export class ScenesTreeProvider implements vscode.TreeDataProvider<ScenesTreeEle
 
     getChildren(element?: ScenesTreeElement): vscode.ProviderResult<ScenesTreeElement[]> {
         if (element instanceof SourceGroupItem) {
+            const version = this.sourcesVersion;
+            this.log?.(
+                `[ScenesTree] getChildren(SourceGroup) sources=${JSON.stringify(
+                    this.sources.map((s) => ({
+                        label: s.label,
+                        fsPath: s.uri.fsPath.toLowerCase(),
+                        baseStatus: s.status,
+                    })),
+                )} staleSet=${JSON.stringify([...this.staleInputPaths])} version=${version}`,
+            );
             return this.sources.map((source) => {
-                const overrideStale = this.staleInputPaths.has(source.uri.fsPath);
+                const overrideStale = this.staleInputPaths.has(source.uri.fsPath.toLowerCase());
                 const status: SourceStatus = overrideStale ? 'stale' : source.status;
-                return new SourceItem({ ...source, status });
+                this.log?.(
+                    `[ScenesTree] -> SourceItem label=${source.label} ` +
+                    `fsPath=${source.uri.fsPath.toLowerCase()} ` +
+                    `overrideStale=${overrideStale} resolvedStatus=${status}`,
+                );
+                return new SourceItem({ ...source, status }, version);
             });
         }
+
 
         if (element instanceof SceneGroupItem) {
             return this.projectPath && this.scenes.length > 0
@@ -104,7 +140,7 @@ export class ScenesTreeProvider implements vscode.TreeDataProvider<ScenesTreeEle
                     .sort((a, b) => a.scene_path.localeCompare(b.scene_path))
                     .map((scene) => {
                         const sceneUri = toSceneUri(this.projectPath!, scene.scene_path);
-                        const staleOverride = this.staleInputPaths.has(sceneUri.fsPath);
+                        const staleOverride = this.staleInputPaths.has(sceneUri.fsPath.toLowerCase());
                         return new SceneTreeItem(
                             staleOverride ? { ...scene, stale: true } : scene,
                             sceneUri,
@@ -171,7 +207,7 @@ export class SceneTreeItem extends vscode.TreeItem {
         this.contextValue = 'sceneProjection';
         this.resourceUri = isSceneStale(scene)
             ? vscode.Uri.parse(`source-stale://scene/${encodeURIComponent(scene.scene_path)}`)
-            : sceneUri;
+            : vscode.Uri.parse(`source-fresh://scene/${encodeURIComponent(scene.scene_path)}`);
         this.iconPath = new vscode.ThemeIcon(isSceneStale(scene) ? 'warning' : 'file');
         this.description = scene.scene_id
             ? `${scene.scene_id}${isSceneStale(scene) ? ' · stale' : ''}`
@@ -230,15 +266,19 @@ const SOURCE_STATUS_META: Record<SourceStatus, { icon: string; hint: string }> =
 };
 
 class SourceItem extends vscode.TreeItem {
-    constructor(snapshot: SourceSnapshot) {
+    constructor(snapshot: SourceSnapshot, version = 0) {
         super(snapshot.label, vscode.TreeItemCollapsibleState.None);
-        this.id = `inputs:source:${snapshot.label}`;
+        // Append version so VS Code treats this as a new TreeItem after a
+        // staleness change, forcing resourceUri (and its decoration) to be
+        // re-applied instead of reusing a cached item.
+        this.id = `inputs:source:${snapshot.label}:v${version}`;
+
         this.contextValue = 'inputSource';
         const { status } = snapshot;
         const meta = SOURCE_STATUS_META[status];
         this.resourceUri = status === 'stale'
             ? vscode.Uri.parse(`source-stale://${snapshot.label}`)
-            : snapshot.uri;
+            : vscode.Uri.parse(`source-fresh://${snapshot.label}`);
         this.description = status.replace('_', ' ');
         this.iconPath = new vscode.ThemeIcon(meta.icon);
         this.command = {

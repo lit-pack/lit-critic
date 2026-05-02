@@ -31,7 +31,7 @@ describe('FindingsTreeProvider (Real)', () => {
         FindingTreeItem = module.FindingTreeItem;
     });
 
-    it('formats finding label and marks current finding in description', () => {
+    it('formats finding label with number, line range, and origin', () => {
         const provider = new FindingsTreeProvider();
         provider.setFindings([sampleFindings[0]], '/test/scene.txt', 0);
 
@@ -39,7 +39,9 @@ describe('FindingsTreeProvider (Real)', () => {
         const finding = provider.getChildren(group)[0];
 
         assert.equal(finding.label, '#1 L42-L45 · LLM');
-        assert.ok(String(finding.description).includes('· current'));
+        // Description is the evidence text (new model has no current-finding marker)
+        assert.ok(String(finding.description).includes('rhythm'));
+        assert.ok(!String(finding.description).includes('· current'));
         assert.ok(!String(finding.description).includes('▶'));
     });
 
@@ -56,15 +58,19 @@ describe('FindingsTreeProvider (Real)', () => {
         assert.ok(!String(nonCurrent.description).includes('▶'));
     });
 
-    it('returns current finding item for native TreeView reveal', () => {
+    it('getCurrentFindingItem() is deprecated and returns undefined in the new model', () => {
         const provider = new FindingsTreeProvider();
         provider.setFindings(sampleFindings, '/test/scene.txt', 1);
 
-        const current = provider.getCurrentFindingItem();
+        // getCurrentFindingItem() is deprecated: new model uses SSE events for navigation
+        assert.equal(provider.getCurrentFindingItem(), undefined);
 
-        assert.ok(current, 'Expected current finding item');
-        assert.equal(current.findingIndex, 1);
-        assert.equal(current.id, 'finding:2');
+        // Finding items are still accessible via getChildren() with correct IDs
+        const structureGroup = provider.getChildren().find((g: any) => g.lens === 'structure');
+        const structureFindings = provider.getChildren(structureGroup);
+        const finding2 = structureFindings.find((f: any) => f.finding?.number === 2);
+        assert.ok(finding2, 'Expected finding item in tree');
+        assert.equal(finding2.id, 'finding:2');
     });
 
     it('uses lens-specific icons and lens resource URI metadata', () => {
@@ -112,12 +118,12 @@ describe('FindingsTreeProvider (Real)', () => {
         let fired = 0;
         const provider = new FindingsTreeProvider({ fireChange: () => { fired += 1; } });
 
-        provider.setFindings(sampleFindings, '/test/scene.txt', 0);
-        provider.setCurrentIndex(1);
-        provider.updateFinding({ ...sampleFindings[0], status: 'accepted' });
-        provider.clear();
+        provider.setFindings(sampleFindings, '/test/scene.txt', 0);   // +1
+        provider.setCurrentIndex(1);                                    // no-op (deprecated)
+        provider.updateFinding({ ...sampleFindings[0], status: 'accepted' }); // +1
+        provider.clear();                                               // +1
 
-        assert.ok(fired >= 4);
+        assert.ok(fired >= 3);
     });
 
     it('provides expected status/severity decorations for finding URIs', () => {

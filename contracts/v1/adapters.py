@@ -19,11 +19,11 @@ from .schemas import (
 def _index_contract_to_legacy_files(indexes: dict[str, str | None]) -> dict[str, str]:
     mapping = {
         "CANON": "CANON.md",
-        "CAST": "CAST.md",
-        "GLOSSARY": "GLOSSARY.md",
+        "CAST": "cast",
+        "GLOSSARY": "glossary",
         "STYLE": "STYLE.md",
-        "THREADS": "THREADS.md",
-        "TIMELINE": "TIMELINE.md",
+        "THREADS": "threads",
+        "TIMELINE": "timeline",
     }
     legacy: dict[str, str] = {}
     for contract_key, legacy_key in mapping.items():

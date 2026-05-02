@@ -4,7 +4,6 @@ export interface RuntimeStateStore {
     allFindings: Finding[];
     currentFindingIndex: number;
     totalFindings: number;
-    closedSessionNotice?: string;
     indexChangeDismissed: boolean;
 }
 
@@ -13,7 +12,6 @@ export function createRuntimeStateStore(): RuntimeStateStore {
         allFindings: [],
         currentFindingIndex: 0,
         totalFindings: 0,
-        closedSessionNotice: undefined,
         indexChangeDismissed: false,
     };
 }

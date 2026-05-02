@@ -36,7 +36,7 @@ describe('ServerManager', () => {
 
     describe('spawn arguments', () => {
         it('should format correct spawn arguments', () => {
-            const scriptPath = '/path/to/lit-critic-web.py';
+            const scriptPath = '/path/to/lit-critic-server.py';
             const port = 8000;
             const args = [scriptPath, '--port', String(port)];
             

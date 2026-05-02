@@ -3,8 +3,8 @@
 This document defines how **Semantic Versioning (SemVer)** is applied across the compartmentalized architecture:
 
 - **Core** (`core/`)
-- **Platform** (`lit_platform/`)
-- **Clients** (`cli/`, `web/`, `vscode-extension/`)
+- **Platform** (`orchestrator/`)
+- **Clients** (`api/`, `vscode-extension/`)
 - **Contracts** (`contracts/v1/`)
 
 ---
@@ -40,9 +40,8 @@ Compatibility is currently enforced at **major-version** granularity.
 | Consumer | Compatible with |
 |---|---|
 | Platform | Core major `2`, Contracts v1 major `1` |
-| CLI | Platform major `2` |
-| Web | Platform major `2` |
-| VS Code Extension | Platform major `2` |
+| API (REST API) | Platform major `2` |
+| VS Code Extension | API major `2` |
 
 Matrix source:
 
@@ -62,20 +61,15 @@ Matrix source:
 - `core/__init__.py` defines `__version__`
 - `core/api.py` FastAPI app `version` must match Core version
 
-### Platform (`lit_platform`)
+### Platform (`orchestrator`)
 
-- `lit_platform/__init__.py` defines `__version__`
+- `orchestrator/__init__.py` defines `__version__`
 - `pyproject.toml` `[project].version` is aligned to Platform package version
 
-### CLI (`cli`)
+### API (`api`)
 
-- `cli/__init__.py` defines `__version__`
-
-### Web (`web`)
-
-- `web/__init__.py` defines `__version__`
-- `web/app.py` FastAPI app `version` must match Web version
-- Web template footers should display the same Web version
+- `api/__init__.py` defines `__version__`
+- `api/app.py` FastAPI app `version` must match API version
 
 ### VS Code Extension
 

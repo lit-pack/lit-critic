@@ -18,7 +18,7 @@ import { ServerManager } from './serverManager';
 import { ApiClient } from './apiClient';
 import { DiagnosticsProvider } from './diagnosticsProvider';
 import { FindingsDecorationProvider, FindingsTreeProvider } from './findingsTreeProvider';
-import { SessionsTreeProvider } from './sessionsTreeProvider';
+import { AnalysisTreeProvider } from './analysisTreeProvider';
 import { ScenesTreeProvider, SceneTreeItem } from './scenesTreeProvider';
 import { KnowledgeTreeProvider } from './knowledgeTreeProvider';
 import { LearningTreeProvider } from './learningTreeProvider';
@@ -30,8 +30,6 @@ import { REPO_MARKER, validateRepoPath } from './repoPreflight';
 import {
     Finding,
     KnowledgeCategoryKey,
-    ResumeErrorDetail,
-    ScenePathRecoverySelection,
 } from './types';
 import {
     KnowledgeReviewHelperDeps,
@@ -46,19 +44,21 @@ import {
     StalenessServiceDeps,
     recheckStaleness,
 } from './workflows/stalenessService';
+import { ExplainCodeActionProvider } from './workflows/explainActionProvider';
 import {
     debugScenesTrace,
     syncSceneDiscoverySettingsToServer,
+    getSceneDiscoverySettingsFromConfig,
 } from './bootstrap/sceneDiscoveryConfig';
 import { createRuntimeStateStore } from './workflows/stateStore';
 import { WorkbenchPresenter } from './ui/workbenchPresenter';
 import { StartupService } from './bootstrap/startupService';
 import { registerCommands } from './commands/registerCommands';
 import {
-    SessionWorkflowController,
+    WorkflowController,
     WorkflowDeps,
     WorkflowUiPort,
-} from './workflows/sessionWorkflowController';
+} from './workflows/workflowController';
 
 // ---------------------------------------------------------------------------
 // State
@@ -71,7 +71,7 @@ let findingsTreeProvider: FindingsTreeProvider;
 let scenesTreeProvider: ScenesTreeProvider;
 let knowledgeTreeProvider: KnowledgeTreeProvider;
 let findingsDecorationProvider: FindingsDecorationProvider;
-let sessionsTreeProvider: SessionsTreeProvider;
+let analysisTreeProvider: AnalysisTreeProvider;
 let learningTreeProvider: LearningTreeProvider;
 let scenesTreeView: vscode.TreeView<any> | undefined;
 let knowledgeTreeView: vscode.TreeView<any> | undefined;
@@ -84,10 +84,13 @@ let operationTracker: OperationTracker;
 let presenter: WorkbenchPresenter;
 let startupService: StartupService;
 let stalenessRegistry: StalenessRegistry = new StalenessRegistry();
-let controller: SessionWorkflowController;
+let controller: WorkflowController;
 let extensionContext: vscode.ExtensionContext | undefined;
 let sceneFileWatcherDisposables: vscode.Disposable[] = [];
-let saveDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+// Single shared debounce timer for staleness re-checks. Both the save listener
+// and the file-system watcher use this timer so that a save (which triggers
+// both paths) results in exactly one API call.
+let stalenessDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 // When true, the file system watcher skips refresh calls. Set during in-tool
 // renames so the watcher doesn't duplicate the refresh the rename command
 // already does explicitly.
@@ -112,28 +115,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     findingsDecorationProvider = new FindingsDecorationProvider();
     findingsTreeProvider = new FindingsTreeProvider(findingsDecorationProvider);
     scenesTreeProvider = new ScenesTreeProvider();
+    scenesTreeProvider.setLogger((msg) => operationTracker.log(msg));
     knowledgeTreeProvider = new KnowledgeTreeProvider();
-    sessionsTreeProvider = new SessionsTreeProvider();
+    analysisTreeProvider = new AnalysisTreeProvider();
     learningTreeProvider = new LearningTreeProvider();
 
     // Register tree views — must always happen so VS Code can populate the sidebar
-    findingsTreeView = vscode.window.createTreeView('literaryCritic.findings', {
+    findingsTreeView = vscode.window.createTreeView('litCritic.findings', {
         treeDataProvider: findingsTreeProvider,
         showCollapseAll: true,
     });
 
-    scenesTreeView = vscode.window.createTreeView('literaryCritic.scenes', {
+    scenesTreeView = vscode.window.createTreeView('litCritic.scenes', {
         treeDataProvider: scenesTreeProvider,
         showCollapseAll: true,
     });
 
-    knowledgeTreeView = vscode.window.createTreeView('literaryCritic.indexes', {
+    knowledgeTreeView = vscode.window.createTreeView('litCritic.indexes', {
         treeDataProvider: knowledgeTreeProvider,
         showCollapseAll: true,
     });
 
-    sessionsTreeView = vscode.window.createTreeView('literaryCritic.sessions', {
-        treeDataProvider: sessionsTreeProvider,
+    sessionsTreeView = vscode.window.createTreeView('litCritic.sessions', {
+        treeDataProvider: analysisTreeProvider,
         showCollapseAll: true,
     });
 
@@ -141,10 +145,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Registration must happen during activate() so VS Code calls resolveWebviewView()
     // when the sidebar is opened. The DiscussionViewProvider uses a lazy ApiClient
     // getter so it can be registered before the server is started.
-    discussionPanel = new DiscussionViewProvider(() => ensureApiClient());
+    discussionPanel = new DiscussionViewProvider();
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
-            'literaryCritic.discussionView',
+            'litCritic.discussionView',
             discussionPanel,
             { webviewOptions: { retainContextWhenHidden: true } },
         ),
@@ -153,7 +157,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     knowledgeReviewPanel = new KnowledgeReviewViewProvider();
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
-            'literaryCritic.knowledgeReviewView',
+            'litCritic.knowledgeReviewView',
             knowledgeReviewPanel,
             { webviewOptions: { retainContextWhenHidden: true } },
         ),
@@ -163,7 +167,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         statusBar,
         diagnosticsProvider,
         findingsTreeProvider,
-        sessionsTreeProvider,
         ensureDiscussionPanel,
         getDiscussionPanel: () => discussionPanel,
     });
@@ -174,11 +177,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // proxyquire (e.g. vscode, fs) are captured correctly by the closures.
     startupService = new StartupService({
         getConfiguredRepoPath: () =>
-            vscode.workspace.getConfiguration('literaryCritic').get<string>('repoPath', '').trim(),
+            vscode.workspace.getConfiguration('litCritic').get<string>('repoPath', '').trim(),
         getAutoStartEnabled: () =>
-            vscode.workspace.getConfiguration('literaryCritic').get<boolean>('autoStartServer', true),
+            vscode.workspace.getConfiguration('litCritic').get<boolean>('autoStartServer', true),
         updateConfiguredRepoPath: (value) =>
-            Promise.resolve(vscode.workspace.getConfiguration('literaryCritic').update(
+            Promise.resolve(vscode.workspace.getConfiguration('litCritic').update(
                 'repoPath', value, vscode.ConfigurationTarget.Global,
             )),
         pathExists: (p) => fs.existsSync(p),
@@ -202,7 +205,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openSettings: (key) =>
             vscode.commands.executeCommand('workbench.action.openSettings', key) as Promise<void>,
         getConfiguredRepoPathAfterSettingsEdit: () =>
-            vscode.workspace.getConfiguration('literaryCritic').get<string>('repoPath', '').trim(),
+            vscode.workspace.getConfiguration('litCritic').get<string>('repoPath', '').trim(),
         withProgressNotification: (title, message, task) =>
             vscode.window.withProgress(
                 { location: vscode.ProgressLocation.Notification, title, cancellable: false },
@@ -212,7 +215,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             vscode.commands.executeCommand(cmd) as Promise<void>,
     });
 
-    const learningTreeView = vscode.window.createTreeView('literaryCritic.learning', {
+    const learningTreeView = vscode.window.createTreeView('litCritic.learning', {
         treeDataProvider: learningTreeProvider,
         showCollapseAll: true,
     });
@@ -221,16 +224,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const lockedEntityDecorationProvider: vscode.FileDecorationProvider = {
         provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
             if (uri.scheme === 'knowledge-flagged') {
-                return { color: new vscode.ThemeColor('literaryCritic.flaggedForReviewForeground') };
+                return { color: new vscode.ThemeColor('litCritic.flaggedForReviewForeground') };
             }
             if (uri.scheme === 'knowledge-overridden') {
-                return { color: new vscode.ThemeColor('literaryCritic.overriddenForeground') };
+                return { color: new vscode.ThemeColor('litCritic.overriddenForeground') };
             }
             if (uri.scheme === 'knowledge-locked') {
-                return { color: new vscode.ThemeColor('literaryCritic.authorOverrideForeground') };
+                return { color: new vscode.ThemeColor('litCritic.authorOverrideForeground') };
             }
             if (uri.scheme === 'source-stale') {
-                return { color: new vscode.ThemeColor('literaryCritic.staleForeground') };
+                return { color: new vscode.ThemeColor('litCritic.staleForeground') };
             }
             return undefined;
         },
@@ -256,15 +259,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     if (findingsVisibilityDisposable) {
         context.subscriptions.push(findingsVisibilityDisposable);
-    }
-
-    const sessionsVisibilityDisposable = sessionsTreeView.onDidChangeVisibility?.((event) => {
-        if (event.visible) {
-            presenter.revealCurrentSessionSelection();
-        }
-    });
-    if (sessionsVisibilityDisposable) {
-        context.subscriptions.push(sessionsVisibilityDisposable);
     }
 
     // Build WorkflowUiPort adapter — maps the controller's narrow interface to
@@ -382,7 +376,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return Array.from(paths);
         },
         getExtensionConfig: () =>
-            vscode.workspace.getConfiguration('literaryCritic') as any,
+            vscode.workspace.getConfiguration('litCritic') as any,
     };
 
     // Build WorkflowDeps and instantiate the controller.
@@ -393,25 +387,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         state,
         presenter,
         findingsTreeProvider,
-        sessionsTreeProvider,
         learningTreeProvider,
         knowledgeTreeProvider,
         knowledgeTreeView,
         diagnosticsProvider,
+        analysisTreeProvider,
         ensureDiscussionPanel: () => ensureDiscussionPanel(),
         getDiscussionPanel: () => discussionPanel,
         runTrackedOperation: (profile, op) => runTrackedOperation(profile, op),
         detectProjectPath: () => detectProjectPath(),
-        promptForScenePathOverride: (detail) => promptForScenePathOverride(detail),
         ui: uiPort,
+        log: (msg) => operationTracker.log(msg),
     };
-    controller = new SessionWorkflowController(workflowDeps);
-
-    // Wire discussion view callbacks now that controller is available
-    discussionPanel.onFindingAction = controller.handleFindingAction;
-    discussionPanel.onDiscussionResult = (result) => {
-        void controller.handleDiscussionResult(result);
-    };
+    controller = new WorkflowController(workflowDeps);
 
     // Wire knowledge review view callbacks now that controller is available
     knowledgeReviewPanel.onAction = async (action) => {
@@ -461,10 +449,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
 
         if (action.type === 'next-entity') {
-            await vscode.commands.executeCommand('literaryCritic.nextKnowledgeEntity');
+            await vscode.commands.executeCommand('litCritic.nextKnowledgeEntity');
         }
         if (action.type === 'previous-entity') {
-            await vscode.commands.executeCommand('literaryCritic.previousKnowledgeEntity');
+            await vscode.commands.executeCommand('litCritic.previousKnowledgeEntity');
         }
 
     };
@@ -479,18 +467,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 await controller.cmdRefreshKnowledge();
             }
             await controller.cmdAnalyze();
+            // Refresh scene projections so the inputs tree drops stale badges
+            // for scenes that were just analysed.
+            void scenesTreeProvider.refresh().catch(() => {});
             void recheckStaleness(getStalenessServiceDeps()).then((count) => updateKnowledgeStalenessMessage(count)).catch(() => {});
         },
-        cmdNextFinding: controller.cmdNextFinding,
-        cmdAcceptFinding: controller.cmdAcceptFinding,
-        cmdRejectFinding: controller.cmdRejectFinding,
-        cmdDiscuss: controller.cmdDiscuss,
-        cmdSelectFinding: controller.cmdSelectFinding,
-        cmdReviewFinding: controller.cmdReviewFinding,
         cmdSelectModel: controller.cmdSelectModel,
         cmdStopServer: controller.cmdStopServer,
-        cmdViewSession: controller.cmdViewSession,
-        cmdDeleteSession: controller.cmdDeleteSession,
+        cmdShowLensFindings: (args: { scenePath: string; lens: string }) => {
+            const sceneFindings = analysisTreeProvider.getFindingsForScene(args.scenePath);
+            const filtered = sceneFindings.filter(
+                (f) => f.lens.toLowerCase() === args.lens.toLowerCase(),
+            );
+            findingsTreeProvider.showLensFindings(filtered, args.scenePath, args.lens);
+            // Auto-reveal the Findings tree view so the user sees the filtered results
+            if (findingsTreeView) {
+                void vscode.commands.executeCommand('litCritic.findings.focus');
+            }
+        },
+        cmdShowSceneFindings: (args: { scenePath: string }) => {
+            const sceneFindings = analysisTreeProvider.getFindingsForScene(args.scenePath);
+            findingsTreeProvider.setFindings(sceneFindings, args.scenePath, 0);
+            // Auto-reveal the Findings tree view so the user sees the results
+            if (findingsTreeView) {
+                void vscode.commands.executeCommand('litCritic.findings.focus');
+            }
+        },
+        cmdResetAllKnowledge: controller.cmdResetAllKnowledge,
+        cmdResetAllAnalysis: controller.cmdResetAllAnalysis,
+        cmdDeleteSceneAnalysis: controller.cmdDeleteSceneAnalysis,
         cmdRefreshLearning: controller.cmdRefreshLearning,
         cmdExportLearning: controller.cmdExportLearning,
         cmdResetLearning: controller.cmdResetLearning,
@@ -689,10 +694,98 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 void vscode.window.showErrorMessage(`lit-critic: Toggle lock failed: ${detail}`);
             }
         },
+        // Explain actions — one-shot LLM explanation for a finding (no state change)
+        cmdExplainFindingQuick: async (findingNumber: number) => {
+            await runExplainFinding(findingNumber, 'quick');
+        },
+        cmdExplainFindingDeep: async (findingNumber: number) => {
+            await runExplainFinding(findingNumber, 'deep');
+        },
     });
 
+    // Findings navigation — triggered by clicking a FindingTreeItem.
+    // Also shows the finding in the Findings Review (Discussion) panel,
+    // mirroring how knowledge items show in the Knowledge Review panel.
     context.subscriptions.push(
-        vscode.commands.registerCommand('literaryCritic.refreshIndexes', async () => {
+        vscode.commands.registerCommand('litCritic.navigateToFinding', (finding: Finding) => {
+            navigateToFindingLine(finding);
+            const allFindings = findingsTreeProvider.getAllFindings();
+            const idx = allFindings.findIndex(f => f.number === finding.number);
+            const current = idx >= 0 ? idx + 1 : 1;
+            const total = allFindings.length;
+            ensureDiscussionPanel().show(finding, current, total);
+        }),
+    );
+
+    // Register the explain code action provider so "Explain (Quick/Deep)" appear
+    // in the lightbulb menu when the cursor is on a lit-critic diagnostic squiggle.
+    context.subscriptions.push(
+        vscode.languages.registerCodeActionsProvider(
+            { scheme: 'file' },
+            new ExplainCodeActionProvider(),
+            { providedCodeActionKinds: ExplainCodeActionProvider.providedCodeActionKinds },
+        ),
+    );
+
+    // Lazily created when the first explanation is requested; disposed with the extension.
+    let explainOutputChannel: vscode.OutputChannel | undefined;
+
+    /**
+     * Shared handler for litCritic.explainFindingQuick and litCritic.explainFindingDeep.
+     * Fetches a one-shot LLM explanation and displays it in the dedicated output channel.
+     */
+    async function runExplainFinding(findingNumber: number, depth: 'quick' | 'deep'): Promise<void> {
+        const projectPath = detectProjectPath();
+        if (!projectPath) {
+            void vscode.window.showErrorMessage('lit-critic: Could not detect project directory.');
+            return;
+        }
+
+        const finding = findingsTreeProvider.getFinding(findingNumber);
+        if (!finding) {
+            void vscode.window.showErrorMessage(
+                `lit-critic: Finding #${findingNumber} not found in current snapshot. Run analysis first.`,
+            );
+            return;
+        }
+
+        // Lazily create the output channel so it only appears when first used.
+        if (!explainOutputChannel) {
+            explainOutputChannel = vscode.window.createOutputChannel('lit-critic: Explain');
+            context.subscriptions.push(explainOutputChannel);
+        }
+
+        const depthLabel = depth === 'quick' ? 'Quick' : 'Deep';
+        explainOutputChannel.appendLine(`\n${'='.repeat(60)}`);
+        explainOutputChannel.appendLine(
+            `Finding #${findingNumber} [Explain ${depthLabel}] — ${finding.lens} · ${finding.severity}`,
+        );
+        explainOutputChannel.appendLine(finding.evidence);
+        explainOutputChannel.appendLine('─'.repeat(60));
+        explainOutputChannel.appendLine('Requesting explanation…');
+        // Reveal channel without stealing focus from the editor
+        explainOutputChannel.show(true);
+
+        try {
+            await ensureServer();
+            // Read the active document text for context; fall back to empty string if no editor open.
+            const sceneText = vscode.window.activeTextEditor?.document.getText() ?? '';
+            const result = await ensureApiClient().explainFinding(
+                findingNumber, finding, sceneText, depth, projectPath,
+            );
+            explainOutputChannel.appendLine('');
+            explainOutputChannel.appendLine(result.explanation);
+            explainOutputChannel.appendLine('');
+            explainOutputChannel.appendLine(`(Model: ${result.model_used})`);
+        } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err);
+            explainOutputChannel.appendLine(`\n⚠️ Explanation failed: ${detail}`);
+            void vscode.window.showErrorMessage(`lit-critic: Explain failed: ${detail}`);
+        }
+    }
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('litCritic.refreshIndexes', async () => {
             await runTrackedOperation(
                 {
                     id: 'refresh-indexes-tree',
@@ -719,7 +812,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 },
             );
         }),
-        vscode.commands.registerCommand('literaryCritic.purgeOrphanedSceneRefs', async () => {
+        vscode.commands.registerCommand('litCritic.purgeOrphanedSceneRefs', async () => {
             const projectPath = detectProjectPath();
             if (!projectPath) {
                 void vscode.window.showWarningMessage('No project detected. Open a lit-critic project first.');
@@ -753,7 +846,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 void vscode.window.showErrorMessage(`lit-critic: Purge failed: ${msg}`);
             }
         }),
-        vscode.commands.registerCommand('literaryCritic.renameScene', async (item?: unknown) => {
+        vscode.commands.registerCommand('litCritic.renameScene', async (item?: unknown) => {
             const projectPath = detectProjectPath();
             if (!projectPath) {
                 void vscode.window.showWarningMessage('No project detected. Open a lit-critic project first.');
@@ -811,7 +904,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
     );
 
-    const config = vscode.workspace.getConfiguration('literaryCritic');
+    const config = vscode.workspace.getConfiguration('litCritic');
     const autoStartServer = config.get<boolean>('autoStartServer', true);
 
     // Apply workspace-scoped problem-decoration preferences (optional).
@@ -820,17 +913,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (
-                event.affectsConfiguration('literaryCritic.disableProblemDecorationColors')
-                || event.affectsConfiguration('literaryCritic.disableProblemDecorationBadges')
+                event.affectsConfiguration('litCritic.disableProblemDecorationColors')
+                || event.affectsConfiguration('litCritic.disableProblemDecorationBadges')
             ) {
                 void applyWorkspaceProblemDecorationPreferences();
             }
 
-            if (event.affectsConfiguration('literaryCritic.knowledgeReviewPassTrigger')) {
+            if (event.affectsConfiguration('litCritic.knowledgeReviewPassTrigger')) {
                 void (async () => {
                     try {
                         if (serverManager?.isRunning) {
-                            const value = vscode.workspace.getConfiguration('literaryCritic')
+                            const value = vscode.workspace.getConfiguration('litCritic')
                                 .get<string>('knowledgeReviewPassTrigger', 'always');
                             await (ensureApiClient() as any).request('POST', '/api/knowledge/review-pass', { value }).catch(() => {});
                         }
@@ -841,8 +934,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
 
             if (
-                event.affectsConfiguration('literaryCritic.sceneFolder')
-                || event.affectsConfiguration('literaryCritic.sceneExtensions')
+                event.affectsConfiguration('litCritic.sceneFolder')
+                || event.affectsConfiguration('litCritic.sceneExtensions')
             ) {
                 void (async () => {
                     try {
@@ -871,9 +964,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.workspace.onDidSaveTextDocument((document) => {
             const savedPath = document.uri.fsPath;
-            const cfg = vscode.workspace.getConfiguration('literaryCritic');
-            const sceneFolder = cfg.get<string>('sceneFolder', 'text');
-            const sceneExtensions = cfg.get<string[]>('sceneExtensions', ['txt']);
+            const { sceneFolder, sceneExtensions } = getSceneDiscoverySettingsFromConfig();
             const projectPath = detectProjectPath();
             if (!projectPath) { return; }
 
@@ -885,12 +976,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const hasSceneExt = sceneExtensions.some((ext) => normalizedSaved.endsWith(`.${ext}`));
             if (!inSceneFolder || !hasSceneExt) { return; }
 
-            // Debounce: clear any pending timer and start a new 2-second countdown.
-            if (saveDebounceTimer !== undefined) {
-                clearTimeout(saveDebounceTimer);
+            // Client-side guard: if this file is already known-stale, a further edit
+            // cannot change the stale count or the set of affected knowledge/sessions.
+            // Skip the API call entirely to avoid redundant network traffic.
+            if (stalenessRegistry.isInputStale(savedPath)) {
+                operationTracker.log(`[Watcher] Document saved (already stale, skipping staleness recheck): ${savedPath}`);
+                return;
             }
-            saveDebounceTimer = setTimeout(() => {
-                saveDebounceTimer = undefined;
+
+            operationTracker.log(`[Watcher] Document saved: ${savedPath}`);
+
+            // Debounce: uses the shared stalenessDebounceTimer so that the fs watcher
+            // firing on the same save event resets this timer rather than adding a
+            // second call — resulting in exactly one API call per save/edit burst.
+            if (stalenessDebounceTimer !== undefined) {
+                clearTimeout(stalenessDebounceTimer);
+            }
+            stalenessDebounceTimer = setTimeout(() => {
+                stalenessDebounceTimer = undefined;
                 void recheckStaleness(getStalenessServiceDeps())
                     .then((count) => {
                         updateKnowledgeStalenessMessage(count);
@@ -898,7 +1001,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                         // when stale scenes are detected on save. 'full' (auto-analyze) is
                         // intentionally excluded from initial scope (see Design Decision D2).
                         if (count > 0) {
-                            const autoUpdate = vscode.workspace.getConfiguration('literaryCritic')
+                            const autoUpdate = vscode.workspace.getConfiguration('litCritic')
                                 .get<string>('autoUpdateOnSave', 'off');
                             if (autoUpdate === 'knowledge') {
                                 void controller.cmdRefreshKnowledge();
@@ -917,17 +1020,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // This silently fixes the case where the user previously set repoPath at
     // Workspace scope (which doesn't follow them to other workspaces).
     if (repoRoot) {
-        const _repoPathCfg = vscode.workspace.getConfiguration('literaryCritic');
+        const _repoPathCfg = vscode.workspace.getConfiguration('litCritic');
         const _inspectFn = (_repoPathCfg as any).inspect;
         const currentGlobal: string | undefined = typeof _inspectFn === 'function'
             ? (_inspectFn.call(_repoPathCfg, 'repoPath') as any)?.globalValue?.trim()
             : undefined;
         if (!currentGlobal || currentGlobal !== repoRoot) {
             // Clear workspace-scoped override first so the global value won't be shadowed.
-            await vscode.workspace.getConfiguration('literaryCritic')
+            await vscode.workspace.getConfiguration('litCritic')
                 .update('repoPath', undefined, vscode.ConfigurationTarget.Workspace)
                 .then(undefined, () => {});
-            await vscode.workspace.getConfiguration('literaryCritic').update(
+            await vscode.workspace.getConfiguration('litCritic').update(
                 'repoPath', repoRoot, vscode.ConfigurationTarget.Global,
             ).then(undefined, () => { /* non-fatal — best-effort promotion */ });
         }
@@ -984,12 +1087,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
                         progress.report({ message: 'Loading project data...' });
                         await autoLoadSidebar();
+
                     },
                 );
 
+                // Re-check staleness to ensure initial UI correctly reflects DB state.
+                await recheckStaleness(getStalenessServiceDeps())
+                    .then((count) => updateKnowledgeStalenessMessage(count))
+                    .catch(() => {});
+
                 // Only mark ready and signal running AFTER all startup work is done.
                 presenter.setReady();
-                void vscode.commands.executeCommand('setContext', 'literaryCritic.serverRunning', true);
+                void vscode.commands.executeCommand('setContext', 'litCritic.serverRunning', true);
 
                 await revealLitCriticActivityContainerIfProjectDetected(repoRoot);
                 await tryMoveReviewContainerToSecondarySidebar(context);
@@ -1009,7 +1118,7 @@ export function deactivate(): void {
 }
 
 async function applyWorkspaceProblemDecorationPreferences(): Promise<void> {
-    const config = vscode.workspace.getConfiguration('literaryCritic');
+    const config = vscode.workspace.getConfiguration('litCritic');
     const disableColors = config.get<boolean>('disableProblemDecorationColors', false);
     const disableBadges = config.get<boolean>('disableProblemDecorationBadges', false);
 
@@ -1033,7 +1142,7 @@ async function applyWorkspaceProblemDecorationPreferences(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function findRepoRoot(): string | undefined {
-    const config = vscode.workspace.getConfiguration('literaryCritic');
+    const config = vscode.workspace.getConfiguration('litCritic');
     const configured = config.get<string>('repoPath', '').trim();
     if (configured) {
         const validation = validateRepoPath(configured);
@@ -1100,11 +1209,11 @@ async function startServerWithBusyUi(repoRoot: string): Promise<void> {
 
     presenter.setReady();
     // Signal to the secondary sidebar views that the server is running.
-    void vscode.commands.executeCommand('setContext', 'literaryCritic.serverRunning', true);
+    void vscode.commands.executeCommand('setContext', 'litCritic.serverRunning', true);
 }
 
 async function ensureRepoRootWithRecovery(): Promise<string> {
-    const config = vscode.workspace.getConfiguration('literaryCritic');
+    const config = vscode.workspace.getConfiguration('litCritic');
     const configured = config.get<string>('repoPath', '').trim();
     const configuredValidation = validateRepoPath(configured || undefined);
     if (configuredValidation.ok) {
@@ -1137,12 +1246,12 @@ async function ensureRepoRootWithRecovery(): Promise<string> {
         }
 
     if (action === 'Open Settings') {
-            await vscode.commands.executeCommand('workbench.action.openSettings', 'literaryCritic.repoPath');
+            await vscode.commands.executeCommand('workbench.action.openSettings', 'litCritic.repoPath');
             // openSettings() resolves immediately when the tab opens, not when the user saves.
             // Show a follow-up modal so the user can set the value and confirm before we read it back.
             // No "Cancel" button here — dismissing via X loops back to the main recovery dialog.
             const confirmed = await vscode.window.showInformationMessage(
-                'Set `literaryCritic.repoPath` in User settings, then click "Check Again".',
+                'Set `litCritic.repoPath` in User settings, then click "Check Again".',
                 { modal: true },
                 'Check Again',
             );
@@ -1152,16 +1261,16 @@ async function ensureRepoRootWithRecovery(): Promise<string> {
             }
             // Read globalValue specifically: .get() returns the merged (workspace-wins) value,
             // which would still be wrong if workspace scope has an old override.
-            const inspected = vscode.workspace.getConfiguration('literaryCritic').inspect<string>('repoPath');
+            const inspected = vscode.workspace.getConfiguration('litCritic').inspect<string>('repoPath');
             const candidate = (inspected?.globalValue ?? '').trim();
             const validation = validateRepoPath(candidate || undefined);
             if (validation.ok) {
                 const normalized = validation.path || candidate;
                 // Clear workspace-scoped override so the global value is not shadowed on next startup.
-                await vscode.workspace.getConfiguration('literaryCritic')
+                await vscode.workspace.getConfiguration('litCritic')
                     .update('repoPath', undefined, vscode.ConfigurationTarget.Workspace)
                     .then(undefined, () => {});
-                await vscode.workspace.getConfiguration('literaryCritic').update(
+                await vscode.workspace.getConfiguration('litCritic').update(
                     'repoPath', normalized, vscode.ConfigurationTarget.Global,
                 );
                 return normalized;
@@ -1190,10 +1299,10 @@ async function ensureRepoRootWithRecovery(): Promise<string> {
 
         const normalized = validation.path || selected;
         // Clear workspace-scoped override so the global value is not shadowed on next startup.
-        await vscode.workspace.getConfiguration('literaryCritic')
+        await vscode.workspace.getConfiguration('litCritic')
             .update('repoPath', undefined, vscode.ConfigurationTarget.Workspace)
             .then(undefined, () => {});
-        await vscode.workspace.getConfiguration('literaryCritic').update(
+        await vscode.workspace.getConfiguration('litCritic').update(
             'repoPath',
             normalized,
             vscode.ConfigurationTarget.Global,
@@ -1221,6 +1330,50 @@ function detectProjectPath(): string | undefined {
     }
 
     return undefined;
+}
+
+/**
+ * Hydrate the Analysis tree on startup by fetching the latest session per scene
+ * from the backend and mapping findings into the analysisTreeProvider.
+ * Also seeds diagnostics from the hydrated findings.
+ */
+async function hydrateAnalysisTree(client: ApiClient, projectPath: string): Promise<void> {
+    const response = await client.getCurrentFindings(projectPath);
+    const sceneEntries = Object.entries(response.scenes);
+    if (sceneEntries.length === 0) {
+        return;
+    }
+
+    const allFindings: Finding[] = [];
+
+    for (const [scenePath, sceneData] of sceneEntries) {
+        if (!sceneData.findings || sceneData.findings.length === 0) { continue; }
+
+        const sceneFindings: Finding[] = sceneData.findings.map((f) => ({
+            number: f.number,
+            severity: f.severity as 'critical' | 'major' | 'minor',
+            lens: f.lens,
+            location: f.location,
+            line_start: f.line_start,
+            line_end: f.line_end,
+            scene_path: scenePath,
+            evidence: f.evidence,
+            impact: f.impact ?? '',
+            options: f.options ?? [],
+            flagged_by: f.flagged_by ?? [],
+            ambiguity_type: null,
+            stale: false,
+            status: f.status || 'active',
+        }));
+
+        analysisTreeProvider.setFindings(scenePath, sceneFindings);
+        allFindings.push(...sceneFindings);
+    }
+
+    // Seed diagnostics from all hydrated findings.
+    if (allFindings.length > 0) {
+        diagnosticsProvider.updateFromFindings(allFindings);
+    }
 }
 
 async function autoLoadSidebar(): Promise<void> {
@@ -1259,28 +1412,13 @@ async function autoLoadSidebar(): Promise<void> {
             knowledgeTreeProvider.setProjectPath(projectPath);
             await knowledgeTreeProvider.refresh().catch(() => {});
 
-            sessionsTreeProvider.setApiClient(client);
-            sessionsTreeProvider.setProjectPath(projectPath);
-            await sessionsTreeProvider.refresh().catch(() => {});
+            // Hydrate the Analysis tree: list sessions, pick latest per scene,
+            // fetch detail for each, and feed findings to analysisTreeProvider.
+            await hydrateAnalysisTree(client, projectPath).catch(() => {});
 
             learningTreeProvider.setApiClient(client);
             learningTreeProvider.setProjectPath(projectPath);
             await learningTreeProvider.refresh().catch(() => {});
-
-            try {
-                const sessionInfo = await client.getSession();
-                sessionsTreeProvider.setCurrentSessionByScenePath(
-                    sessionInfo.active ? sessionInfo.scene_path : undefined,
-                );
-                presenter.revealCurrentSessionSelection();
-            } catch {
-                // Silently ignore — user can manually resume if needed
-            }
-
-            // Run a second startup pass after session-state hydration.
-            // This helps recover from transient first-pass startup timing
-            // where existing sessions may not appear until a later action.
-            await sessionsTreeProvider.refresh().catch(() => {});
 
             // Set up the file system watcher now that the server is ready and
             // the project path is known. The watcher auto-refreshes the Inputs
@@ -1307,7 +1445,7 @@ async function tryMoveReviewContainerToSecondarySidebar(context: vscode.Extensio
         await vscode.commands.executeCommand('workbench.view.extension.lit-critic-review');
         // Move the Discussion view to the Secondary Side Bar (aux bar)
         await vscode.commands.executeCommand('workbench.action.moveView', {
-            viewId: 'literaryCritic.discussionView',
+            viewId: 'litCritic.discussionView',
             destGroupOrContainerId: 'workbench.view.auxiliarybar',
         });
         await context.globalState.update(flagKey, true);
@@ -1402,7 +1540,7 @@ function getStalenessServiceDeps(): StalenessServiceDeps {
         stalenessRegistry,
         scenesTreeProvider,
         knowledgeTreeProvider,
-        sessionsTreeProvider,
+        log: (msg) => operationTracker?.log(msg),
     };
 }
 
@@ -1412,8 +1550,8 @@ function getStalenessServiceDeps(): StalenessServiceDeps {
 
 function updateKnowledgeStalenessMessage(count: number): void {
     if (!knowledgeTreeView) { return; }
-    knowledgeTreeView.message = count > 0
-        ? `⚠ ${count} scene${count === 1 ? '' : 's'} changed since last update. Run "Update Knowledge (AI)" to re-read.`
+    knowledgeTreeView.badge = count > 0
+        ? { value: count, tooltip: `${count} scene${count === 1 ? '' : 's'} changed — run "Update (AI)"` }
         : undefined;
 }
 
@@ -1433,40 +1571,59 @@ function setupSceneFileWatcher(): vscode.Disposable[] {
         return [];
     }
 
-    const config = vscode.workspace.getConfiguration('literaryCritic');
-    const sceneFolder = config.get<string>('sceneFolder', 'text');
-    const sceneExtensions = config.get<string[]>('sceneExtensions', ['txt']);
+    const { sceneFolder, sceneExtensions } = getSceneDiscoverySettingsFromConfig();
 
-    const handleChange = () => {
-        // Skip while an in-tool rename is in progress — the rename command issues
-        // its own single refresh, so these watcher events would be duplicates.
-        if (sceneWatcherSuppressed) { return; }
-        void (async () => {
-            try {
-                const currentPath = detectProjectPath();
-                if (!currentPath || !serverManager?.isRunning) { return; }
-                const client = ensureApiClient();
-                await client.refreshScenes(currentPath).catch(() => {});
-                scenesTreeProvider.setApiClient(client);
-                scenesTreeProvider.setProjectPath(currentPath);
-                await scenesTreeProvider.refresh().catch(() => {});
-                const watcherCount = await recheckStaleness(getStalenessServiceDeps()).catch(() => 0);
-                updateKnowledgeStalenessMessage(watcherCount);
-            } catch {
-                // Non-fatal
-            }
-        })();
+    // Shared helper: debounce and schedule a staleness re-check.
+    const scheduleStalenessCheck = () => {
+        if (stalenessDebounceTimer !== undefined) {
+            clearTimeout(stalenessDebounceTimer);
+        }
+        stalenessDebounceTimer = setTimeout(() => {
+            stalenessDebounceTimer = undefined;
+            void recheckStaleness(getStalenessServiceDeps())
+                .then((count) => updateKnowledgeStalenessMessage(count))
+                .catch(() => {});
+        }, 2000);
     };
 
+    // onChange: file content changed. Skip if already known-stale — re-editing
+    // a stale file can't change the count or the affected knowledge/sessions.
+    // The shared timer also coalesces this with the onDidSaveTextDocument handler
+    // so that a save (which triggers both paths) produces exactly one API call.
+    const handleChange = (uri: vscode.Uri) => {
+        if (sceneWatcherSuppressed) {
+            operationTracker.log(`[Watcher] Suppressed (rename in progress): ${uri.fsPath}`);
+            return;
+        }
+        if (stalenessRegistry.isInputStale(uri.fsPath)) {
+            operationTracker.log(`[Watcher] Skipped (already stale): ${uri.fsPath}`);
+            return;
+        }
+        operationTracker.log(`[Watcher] File changed: ${uri.fsPath}`);
+        scheduleStalenessCheck();
+    };
+
+    // onCreate / onDelete: file set changed — always recheck regardless of
+    // current stale state, since a new or removed file may shift staleness.
+    const handleCreateOrDelete = (uri: vscode.Uri) => {
+        if (sceneWatcherSuppressed) {
+            operationTracker.log(`[Watcher] Suppressed (rename in progress): ${uri.fsPath}`);
+            return;
+        }
+        operationTracker.log(`[Watcher] File created/deleted: ${uri.fsPath}`);
+        scheduleStalenessCheck();
+        void scenesTreeProvider.refresh().catch(() => {});
+    };
 
     const disposables: vscode.Disposable[] = [];
     for (const ext of sceneExtensions) {
         const pattern = new vscode.RelativePattern(projectPath, `${sceneFolder}/**/*.${ext}`);
+        operationTracker.log(`[Watcher] Setup: watching ${sceneFolder}/**/*.${ext} in ${projectPath}`);
         const watcher = vscode.workspace.createFileSystemWatcher(pattern);
         disposables.push(
             watcher,
-            watcher.onDidCreate(handleChange),
-            watcher.onDidDelete(handleChange),
+            watcher.onDidCreate(handleCreateOrDelete),
+            watcher.onDidDelete(handleCreateOrDelete),
             watcher.onDidChange(handleChange),
         );
     }
@@ -1543,57 +1700,3 @@ async function navigateToFindingLine(finding: Finding): Promise<void> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Recovery helpers used by autoLoadSidebar and controller deps
-// ---------------------------------------------------------------------------
-
-async function promptForScenePathOverride(detail: ResumeErrorDetail): Promise<ScenePathRecoverySelection | undefined> {
-    const savedPaths = detail.saved_scene_paths && detail.saved_scene_paths.length > 0
-        ? detail.saved_scene_paths
-        : (detail.saved_scene_path ? [detail.saved_scene_path] : []);
-    const missingPaths = detail.missing_scene_paths && detail.missing_scene_paths.length > 0
-        ? detail.missing_scene_paths
-        : (detail.attempted_scene_path ? [detail.attempted_scene_path] : []);
-
-    if (missingPaths.length > 1) {
-        const overrides: Record<string, string> = {};
-        for (const missingPath of missingPaths) {
-            const defaultUri = missingPath ? vscode.Uri.file(missingPath) : undefined;
-            const picked = await vscode.window.showOpenDialog({
-                canSelectFiles: true,
-                canSelectFolders: false,
-                canSelectMany: false,
-                openLabel: 'Map this scene file',
-                title: `Scene missing: ${path.basename(missingPath)} — select replacement file`,
-                defaultUri,
-            });
-
-            const selected = picked?.[0]?.fsPath;
-            if (!selected) {
-                return undefined;
-            }
-            overrides[missingPath] = selected;
-        }
-
-        return { scenePathOverrides: overrides };
-    }
-
-    const fallback = missingPaths[0] || savedPaths[0] || detail.saved_scene_path || detail.attempted_scene_path || '';
-    const defaultUri = fallback ? vscode.Uri.file(fallback) : undefined;
-
-    const picked = await vscode.window.showOpenDialog({
-        canSelectFiles: true,
-        canSelectFolders: false,
-        canSelectMany: false,
-        openLabel: 'Resume with this file',
-        title: 'Scene file not found — select the correct file to resume',
-        defaultUri,
-    });
-
-    const selected = picked?.[0]?.fsPath;
-    if (!selected) {
-        return undefined;
-    }
-
-    return { scenePathOverride: selected };
-}

@@ -107,7 +107,7 @@ describe('ServerManager (Real)', () => {
             await manager.start();
             
             assert.ok(spawnedCommand.includes('python') || spawnedCommand === 'py');
-            assert.ok(spawnedArgs.some((arg: string) => arg.includes('lit-critic-web.py')));
+            assert.ok(spawnedArgs.some((arg: string) => arg.includes('lit-critic-server.py')));
             assert.ok(spawnedArgs.includes('--port'));
             assert.ok(spawnedArgs.includes('8000'));
         });

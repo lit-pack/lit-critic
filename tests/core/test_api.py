@@ -7,9 +7,6 @@ from fastapi.testclient import TestClient
 import core.api as core_api
 from contracts.v1.schemas import (
     AnalyzeResponse,
-    DiscussAction,
-    DiscussResponse,
-    FindingContract,
     MetaContract,
     ReEvaluateFindingResponse,
 )
@@ -53,50 +50,6 @@ def test_analyze_v1_uses_resolved_model_id_and_returns_contract(monkeypatch):
     assert response.status_code == 200
     assert response.json()["findings"] == []
     assert captured["model"] == "claude-sonnet-4-5-20250929"
-
-
-def test_discuss_v1_returns_contract(monkeypatch):
-    async def _fake_discuss(request, *, discussion_client):
-        return DiscussResponse(
-            assistant_response="Thanks for the clarification.",
-            action=DiscussAction(type="defend", payload={"legacy_status": "continue"}),
-            updated_finding=FindingContract(**request.finding.model_dump()),
-            extracted_preference=None,
-            meta=MetaContract(model_used=request.model_settings.discussion_model),
-        )
-
-    monkeypatch.setattr(core_api, "create_client", lambda provider, api_key: object())
-    monkeypatch.setattr(core_api.core_service, "discuss", _fake_discuss)
-
-    client = TestClient(core_api.app)
-    response = client.post(
-        "/v1/discuss",
-        json={
-            "scene_text": "Scene text",
-            "finding": {
-                "number": 1,
-                "severity": "major",
-                "lens": "prose",
-                "location": "Paragraph 1",
-                "evidence": "Repeated sentence openings",
-                "impact": "Monotony",
-                "options": ["Vary openings"],
-                "flagged_by": ["prose"],
-                "stale": False,
-            },
-            "discussion_context": {"discussion_turns": []},
-            "author_message": "This cadence is intentional.",
-            "model_config": {
-                "discussion_model": "gpt-4o",
-                "api_keys": {"openai": "sk-openai-test"},
-                "max_tokens": 512,
-            },
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["assistant_response"] == "Thanks for the clarification."
-    assert response.json()["action"]["type"] == "defend"
 
 
 def test_re_evaluate_v1_returns_contract(monkeypatch):

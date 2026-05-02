@@ -194,10 +194,10 @@ export function getKnowledgeReviewPanelHtml(initialState: KnowledgeReviewPanelSt
     --button-hover: var(--vscode-button-hoverBackground);
     --button-secondary-bg: var(--vscode-button-secondaryBackground);
     --button-secondary-fg: var(--vscode-button-secondaryForeground);
-    --color-stale: var(--vscode-literaryCritic-staleForeground);
-    --color-flagged: var(--vscode-literaryCritic-flaggedForReviewForeground);
-    --color-locked: var(--vscode-literaryCritic-authorOverrideForeground);
-    --color-overridden: var(--vscode-literaryCritic-overriddenForeground);
+    --color-stale: var(--vscode-litCritic-staleForeground);
+    --color-flagged: var(--vscode-litCritic-flaggedForReviewForeground);
+    --color-locked: var(--vscode-litCritic-authorOverrideForeground);
+    --color-overridden: var(--vscode-litCritic-overriddenForeground);
 }
 
 * { box-sizing: border-box; }

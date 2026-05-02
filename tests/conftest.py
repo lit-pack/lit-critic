@@ -2,13 +2,20 @@
 Shared fixtures for lit-critic tests.
 """
 
+import sys
+if sys.version_info < (3, 10):
+    raise RuntimeError(
+        f"lit-critic requires Python 3.10+. You are running {sys.version}.\n"
+        "Run: py -3.13 -m venv .venv && .venv\\Scripts\\activate && pip install -r requirements.txt"
+    )
+
 import sqlite3
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
-from lit_platform.runtime.models import Finding, LearningData, SessionState, LensResult, CoordinatorError
-from lit_platform.runtime.llm.base import LLMResponse, LLMToolResponse
-from lit_platform.runtime.db import init_db, get_connection
+from orchestrator.runtime.models import Finding, LearningData, SessionState, LensResult, CoordinatorError
+from orchestrator.runtime.llm.base import LLMResponse, LLMToolResponse
+from orchestrator.runtime.db import init_db
 
 
 @pytest.fixture
@@ -176,11 +183,11 @@ def sample_indexes():
     """Sample index files content."""
     return {
         "CANON.md": "# Canon\n\nMagic system uses crystals.",
-        "CAST.md": "# Cast\n\n## Elena\nAge: 28\nRole: Protagonist",
-        "GLOSSARY.md": "# Glossary\n\n- Lumina: magical light energy",
+        "cast": "# Cast\n\n## Elena\nAge: 28\nRole: Protagonist",
+        "glossary": "# Glossary\n\n- Lumina: magical light energy",
         "STYLE.md": "# Style\n\nPresent timeline: dry, concrete",
-        "THREADS.md": "# Threads\n\n- Elena's redemption arc",
-        "TIMELINE.md": "# Timeline\n\nAct 1: Chapters 1-5",
+        "threads": "# Threads\n\n- Elena's redemption arc",
+        "timeline": "# Timeline\n\nAct 1: Chapters 1-5",
     }
 
 
@@ -281,18 +288,6 @@ def _wal_checkpoint_cleanup(tmp_path):
 
 
 @pytest.fixture
-def project_db_conn(temp_project_dir):
-    """Create a real DB in the temp project directory."""
-    conn = get_connection(temp_project_dir)
-    yield conn
-    # Checkpoint and truncate the WAL file before closing so Windows
-    # releases the memory-mapped -shm handle promptly, preventing
-    # handle accumulation across hundreds of tests.
-    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    conn.close()
-
-
-@pytest.fixture
 def sample_session_state(mock_anthropic_client, sample_scene, temp_project_dir, sample_indexes, sample_learning_data):
     """Create a sample SessionState for testing (no DB connection)."""
     scene_path = temp_project_dir / "chapter01.md"
@@ -304,22 +299,6 @@ def sample_session_state(mock_anthropic_client, sample_scene, temp_project_dir, 
         indexes=sample_indexes,
         learning=sample_learning_data,
     )
-
-
-@pytest.fixture
-def sample_session_state_with_db(mock_anthropic_client, sample_scene, temp_project_dir, sample_indexes, sample_learning_data, project_db_conn):
-    """Create a sample SessionState backed by a real SQLite database."""
-    scene_path = temp_project_dir / "chapter01.md"
-    state = SessionState(
-        client=mock_anthropic_client,
-        scene_content=sample_scene,
-        scene_path=str(scene_path),
-        project_path=temp_project_dir,
-        indexes=sample_indexes,
-        learning=sample_learning_data,
-        db_conn=project_db_conn,
-    )
-    return state
 
 
 # --- Phase 2: Management test fixtures ---

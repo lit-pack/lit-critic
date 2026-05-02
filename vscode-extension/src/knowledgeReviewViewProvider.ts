@@ -89,7 +89,7 @@ export class KnowledgeReviewViewProvider implements vscode.WebviewViewProvider, 
         if (!this._view) {
             // View not yet resolved — queue and open the sidebar container
             this._pendingState = cloneState(state);
-            void vscode.commands.executeCommand('literaryCritic.knowledgeReviewView.focus');
+            void vscode.commands.executeCommand('litCritic.knowledgeReviewView.focus');
             return;
         }
 
@@ -104,7 +104,7 @@ export class KnowledgeReviewViewProvider implements vscode.WebviewViewProvider, 
         this._state = cloneState(state);
         if (!this._view) {
             this._pendingState = cloneState(state);
-            void vscode.commands.executeCommand('literaryCritic.knowledgeReviewView.focus');
+            void vscode.commands.executeCommand('litCritic.knowledgeReviewView.focus');
             return;
         }
         this.render();

@@ -8,7 +8,7 @@ Complete REST API documentation for the lit-critic Platform API surface.
 
 ## Overview
 
-The lit-critic Web/API surface exposes `/api/*` endpoints used by all interfaces (CLI, Web UI, VS Code Extension) for workflow operations.
+The lit-critic API surface exposes `/api/*` endpoints consumed by the VS Code extension for workflow operations.
 
 ### Architectural Boundary
 
@@ -559,7 +559,7 @@ Return project-knowledge freshness summary for scene and index projections.
 
 #### `POST /api/scenes/lock`
 
-Lock a scene file to skip automatic extraction during knowledge refresh.
+Lock a scene file to skip extraction when you run Refresh Knowledge.
 Locked scenes are included in analysis but their content is not re-extracted.
 
 **Request Body:**
@@ -590,8 +590,7 @@ Locked scenes are included in analysis but their content is not re-extracted.
 
 #### `POST /api/scenes/unlock`
 
-Unlock a scene file so automatic extraction can run again during knowledge
-refresh.
+Unlock a scene file so extraction runs again when you run Refresh Knowledge.
 
 **Request Body:**
 ```json
@@ -2303,7 +2302,7 @@ No rate limiting is currently implemented. The API is designed for local use onl
 
 ## CORS
 
-CORS is enabled for all origins in development. For production deployment, configure `allow_origins` in `web/app.py`.
+CORS is enabled for all origins in development. For production deployment, configure `allow_origins` in `api/app.py`.
 
 ---
 
@@ -2312,7 +2311,7 @@ CORS is enabled for all origins in development. For production deployment, confi
 ### Local Development
 
 ```bash
-python lit-critic-web.py --reload
+python lit-critic-server.py --reload
 ```
 
 ### Production

@@ -6,7 +6,7 @@ import {
     cmdResetLearning,
     cmdDeleteLearningEntry,
 } from '../../vscode-extension/src/workflows/learningWorkflowHandlers';
-import { WorkflowDeps } from '../../vscode-extension/src/workflows/sessionWorkflowController';
+import { WorkflowDeps } from '../../vscode-extension/src/workflows/workflowController';
 
 // ---------------------------------------------------------------------------
 // Mock deps factory
@@ -54,7 +54,6 @@ function makeDeps(overrides: Partial<WorkflowDeps> = {}): WorkflowDeps & {
             allFindings: [],
             currentFindingIndex: 0,
             totalFindings: 0,
-            closedSessionNotice: undefined,
             indexChangeDismissed: false,
         } as any,
         presenter: {
@@ -63,7 +62,6 @@ function makeDeps(overrides: Partial<WorkflowDeps> = {}): WorkflowDeps & {
             setAnalyzing: () => {},
         } as any,
         findingsTreeProvider: {} as any,
-        sessionsTreeProvider: {} as any,
         learningTreeProvider: {
             setApiClient: (client: any) => learningSetApiClientCalls.push('set'),
             setProjectPath: () => {},
@@ -76,7 +74,6 @@ function makeDeps(overrides: Partial<WorkflowDeps> = {}): WorkflowDeps & {
         getDiscussionPanel: () => undefined,
         runTrackedOperation: async (_profile, operation) => operation(),
         detectProjectPath: () => '/project',
-        promptForScenePathOverride: async () => undefined,
         ui: {
             showInformationMessage: async (msg: string) => { infoMessages.push(msg); return undefined; },
             showErrorMessage: async (msg: string) => { errorMessages.push(msg); return undefined; },
@@ -145,7 +142,6 @@ function makeTrackedDeps(overrides: Partial<WorkflowDeps> = {}) {
             allFindings: [],
             currentFindingIndex: 0,
             totalFindings: 0,
-            closedSessionNotice: undefined,
             indexChangeDismissed: false,
         } as any,
         presenter: {
@@ -154,7 +150,6 @@ function makeTrackedDeps(overrides: Partial<WorkflowDeps> = {}) {
             setAnalyzing: () => {},
         } as any,
         findingsTreeProvider: {} as any,
-        sessionsTreeProvider: {} as any,
         learningTreeProvider: {
             setApiClient: (_client: any) => learningSetApiClientCalls.push('set'),
             setProjectPath: () => {},
@@ -167,7 +162,6 @@ function makeTrackedDeps(overrides: Partial<WorkflowDeps> = {}) {
         getDiscussionPanel: () => undefined,
         runTrackedOperation: async (_profile, operation) => operation(),
         detectProjectPath: () => '/project',
-        promptForScenePathOverride: async () => undefined,
         ui: {
             showInformationMessage: async (msg: string) => { infoMessages.push(msg); return undefined; },
             showErrorMessage: async (msg: string) => { errorMessages.push(msg); return undefined; },

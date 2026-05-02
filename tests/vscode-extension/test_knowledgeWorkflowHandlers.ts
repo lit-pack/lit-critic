@@ -3,11 +3,12 @@ import { strict as assert } from 'assert';
 import {
     cmdEditKnowledgeEntry,
     cmdResetKnowledgeOverride,
+    cmdResetAllKnowledge,
     resolveKnowledgeEntityPayload,
     getEditableKnowledgeFields,
     toKnowledgeFieldValue,
 } from '../../vscode-extension/src/workflows/knowledgeWorkflowHandlers';
-import { WorkflowDeps } from '../../vscode-extension/src/workflows/sessionWorkflowController';
+import { WorkflowDeps } from '../../vscode-extension/src/workflows/workflowController';
 import { KnowledgeEntityTreeItemPayload } from '../../vscode-extension/src/types';
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,6 @@ function makeTrackedDeps(overrides: Partial<WorkflowDeps> = {}) {
             allFindings: [],
             currentFindingIndex: 0,
             totalFindings: 0,
-            closedSessionNotice: undefined,
             indexChangeDismissed: false,
         } as any,
         presenter: {
@@ -64,7 +64,6 @@ function makeTrackedDeps(overrides: Partial<WorkflowDeps> = {}) {
             setAnalyzing: () => {},
         } as any,
         findingsTreeProvider: {} as any,
-        sessionsTreeProvider: {} as any,
         learningTreeProvider: {} as any,
         knowledgeTreeProvider: {
             setApiClient: () => {},
@@ -79,7 +78,6 @@ function makeTrackedDeps(overrides: Partial<WorkflowDeps> = {}) {
         getDiscussionPanel: () => undefined,
         runTrackedOperation: async (_profile, operation) => operation(),
         detectProjectPath: () => '/project',
-        promptForScenePathOverride: async () => undefined,
         ui: {
             showInformationMessage: async (msg: string) => { infoMessages.push(msg); return undefined; },
             showErrorMessage: async (msg: string) => { errorMessages.push(msg); return undefined; },
@@ -293,5 +291,48 @@ describe('knowledgeWorkflowHandlers — cmdResetKnowledgeOverride()', () => {
         const result = await cmdResetKnowledgeOverride(payload, t.deps);
         assert.equal(result, false);
         assert.equal(t.deleteOverrideCalls.length, 0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// cmdResetAllKnowledge
+// ---------------------------------------------------------------------------
+
+describe('knowledgeWorkflowHandlers — cmdResetAllKnowledge()', () => {
+    it('calls resetAllKnowledge and refreshes tree when user confirms', async () => {
+        let resetCalled = false;
+        const t = makeTrackedDeps();
+        t.deps.getApiClient = () => ({
+            resetAllKnowledge: async (_pp: string) => { resetCalled = true; return { reset: true }; },
+        } as any);
+        (t.deps.ui as any).showWarningMessage = async () => 'Reset';
+
+        await cmdResetAllKnowledge(t.deps);
+
+        assert.ok(resetCalled, 'resetAllKnowledge should be called on confirm');
+        assert.ok(t.knowledgeRefreshCount > 0, 'knowledge tree should be refreshed');
+        assert.ok(t.infoMessages.some(m => m.includes('knowledge has been reset')));
+    });
+
+    it('does not call resetAllKnowledge when user dismisses the dialog', async () => {
+        let resetCalled = false;
+        const t = makeTrackedDeps();
+        t.deps.getApiClient = () => ({
+            resetAllKnowledge: async () => { resetCalled = true; return { reset: true }; },
+        } as any);
+        // Default showWarningMessage returns undefined (dismissed)
+
+        await cmdResetAllKnowledge(t.deps);
+
+        assert.ok(!resetCalled, 'resetAllKnowledge must not be called when dialog dismissed');
+        assert.equal(t.knowledgeRefreshCount, 0, 'tree must not be refreshed on cancel');
+    });
+
+    it('shows error when no project path', async () => {
+        const t = makeTrackedDeps({ detectProjectPath: () => undefined });
+
+        await cmdResetAllKnowledge(t.deps);
+
+        assert.ok(t.errorMessages.some(m => m.includes('Could not detect project')));
     });
 });

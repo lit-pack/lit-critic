@@ -1,7 +1,7 @@
 import { strict as assert } from 'assert';
 
 import { cmdSelectModel } from '../../vscode-extension/src/workflows/modelSelectionWorkflow';
-import { WorkflowDeps } from '../../vscode-extension/src/workflows/sessionWorkflowController';
+import { WorkflowDeps } from '../../vscode-extension/src/workflows/workflowController';
 
 // ---------------------------------------------------------------------------
 // Canned server config
@@ -48,7 +48,6 @@ function makeTrackedDeps(configOverrides: Record<string, any> = {}) {
         state: {} as any,
         presenter: { setError: () => {} } as any,
         findingsTreeProvider: {} as any,
-        sessionsTreeProvider: {} as any,
         learningTreeProvider: {} as any,
         knowledgeTreeProvider: {} as any,
         knowledgeTreeView: undefined,
@@ -57,7 +56,6 @@ function makeTrackedDeps(configOverrides: Record<string, any> = {}) {
         getDiscussionPanel: () => undefined,
         runTrackedOperation: async (_p, op) => op(),
         detectProjectPath: () => '/project',
-        promptForScenePathOverride: async () => undefined,
         ui: {
             showInformationMessage: async (msg: string) => { infoMessages.push(msg); return undefined; },
             showErrorMessage: async (msg: string) => { errorMessages.push(msg); return undefined; },
@@ -97,79 +95,57 @@ function makeTrackedDeps(configOverrides: Record<string, any> = {}) {
 // ---------------------------------------------------------------------------
 
 describe('modelSelectionWorkflow — cmdSelectModel()', () => {
-    it('user cancels first picker — no writes', async () => {
+    it('user cancels picker — no writes', async () => {
         const t = makeTrackedDeps();
-        t.setQuickPickResponses(undefined); // cancel action picker
+        t.setQuickPickResponses(undefined);
         await cmdSelectModel(t.deps);
         assert.equal(t.configUpdates.length, 0);
     });
 
-    it('mode-picker: mode updated in config when user selects', async () => {
-        const t = makeTrackedDeps({ analysisMode: 'quick' });
-        t.setQuickPickResponses(
-            { action: 'analysisMode', label: 'Set analysis mode' },  // action picker
-            { label: 'deep' },                                        // mode picker
-        );
+    it('selecting Sonnet writes analysisModel=sonnet and shows info message', async () => {
+        const t = makeTrackedDeps();
+        t.setQuickPickResponses({ label: 'Sonnet', value: 'sonnet', description: 'Balanced analysis' });
         await cmdSelectModel(t.deps);
         assert.equal(t.configUpdates.length, 1);
-        assert.equal(t.configUpdates[0].key, 'analysisMode');
-        assert.equal(t.configUpdates[0].value, 'deep');
-        assert.ok(t.infoMessages.some(m => m.includes('Analysis mode set to deep')));
-    });
-
-    it('mode-picker: user cancels mode pick — no writes', async () => {
-        const t = makeTrackedDeps();
-        t.setQuickPickResponses(
-            { action: 'analysisMode', label: 'Set analysis mode' }, // action picker
-            undefined,                                               // user cancels mode pick
-        );
-        await cmdSelectModel(t.deps);
-        assert.equal(t.configUpdates.length, 0);
-    });
-
-    it('slot-picker: frontier slot set to specific model', async () => {
-        const t = makeTrackedDeps();
-        t.setQuickPickResponses(
-            { action: 'modelSlotFrontier', label: 'Set Frontier model slot' }, // action picker
-            { label: 'Sonnet 4.5 (sonnet)', value: 'sonnet' },                 // model picker
-        );
-        await cmdSelectModel(t.deps);
-        assert.equal(t.configUpdates.length, 1);
-        assert.equal(t.configUpdates[0].key, 'modelSlotFrontier');
+        assert.equal(t.configUpdates[0].key, 'analysisModel');
         assert.equal(t.configUpdates[0].value, 'sonnet');
-        assert.ok(t.infoMessages.some(m => m.includes('Frontier slot set to')));
+        assert.ok(t.infoMessages.some(m => m.includes('Sonnet')));
     });
 
-    it('slot-picker: "Use backend default" writes empty string', async () => {
+    it('selecting Opus writes analysisModel=opus and shows info message', async () => {
         const t = makeTrackedDeps();
-        t.setQuickPickResponses(
-            { action: 'modelSlotDeep', label: 'Set Deep model slot' }, // action picker
-            { label: 'Use backend default', value: '' },                // backend default
-        );
+        t.setQuickPickResponses({ label: 'Opus', value: 'opus', description: 'Deepest analysis' });
         await cmdSelectModel(t.deps);
         assert.equal(t.configUpdates.length, 1);
-        assert.equal(t.configUpdates[0].key, 'modelSlotDeep');
-        assert.equal(t.configUpdates[0].value, '');
-        assert.ok(t.infoMessages.some(m => m.includes('backend default')));
+        assert.equal(t.configUpdates[0].key, 'analysisModel');
+        assert.equal(t.configUpdates[0].value, 'opus');
+        assert.ok(t.infoMessages.some(m => m.includes('Opus')));
     });
 
-    it('slot-picker: user cancels model pick — no writes', async () => {
+    it('selecting Haiku writes analysisModel=haiku and shows info message', async () => {
         const t = makeTrackedDeps();
-        t.setQuickPickResponses(
-            { action: 'modelSlotQuick', label: 'Set Quick model slot' }, // action picker
-            undefined,                                                    // user cancels
-        );
+        t.setQuickPickResponses({ label: 'Haiku', value: 'haiku', description: 'Fast & cheap' });
         await cmdSelectModel(t.deps);
-        assert.equal(t.configUpdates.length, 0);
+        assert.equal(t.configUpdates.length, 1);
+        assert.equal(t.configUpdates[0].key, 'analysisModel');
+        assert.equal(t.configUpdates[0].value, 'haiku');
+        assert.ok(t.infoMessages.some(m => m.includes('Haiku')));
     });
 
-    it('action picker shows current mode in description', async () => {
-        const t = makeTrackedDeps({ analysisMode: 'deep' });
+    it('current model is marked as selected in picker items', async () => {
+        const t = makeTrackedDeps({ analysisModel: 'haiku' });
         t.setQuickPickResponses(undefined); // cancel immediately
         await cmdSelectModel(t.deps);
         const firstPickCall = t.quickPickCalls[0];
-        const modeActionItem = firstPickCall?.items.find((i: any) => i.action === 'analysisMode');
-        assert.ok(modeActionItem, 'Expected analysisMode action item');
-        assert.ok(modeActionItem.description?.includes('deep'));
+        const haikuItem = firstPickCall?.items.find((i: any) => i.value === 'haiku');
+        assert.ok(haikuItem, 'Expected haiku item in picker');
+        assert.ok(haikuItem.detail?.includes('✓'), 'Expected current model to be marked as selected');
+    });
+
+    it('picker is shown exactly once', async () => {
+        const t = makeTrackedDeps();
+        t.setQuickPickResponses({ label: 'Sonnet', value: 'sonnet' });
+        await cmdSelectModel(t.deps);
+        assert.equal(t.quickPickCalls.length, 1);
     });
 });

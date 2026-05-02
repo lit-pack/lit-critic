@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from lit_platform.runtime.api import run_analysis
-from lit_platform.runtime.llm.base import LLMClient
+from orchestrator.runtime.api import run_analysis
+from orchestrator.runtime.llm.base import LLMClient
 
 from .adapters import (
     adapt_analyze_request_to_legacy,

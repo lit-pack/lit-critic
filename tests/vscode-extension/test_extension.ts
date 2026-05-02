@@ -71,12 +71,12 @@ describe('Extension', () => {
                 (packageJson.contributes?.commands ?? []).map((command: any) => command.command),
             );
 
-            assert.ok(contributedCommands.has('literaryCritic.refreshKnowledge'));
-            assert.ok(contributedCommands.has('literaryCritic.deleteKnowledgeEntity'));
-            assert.ok(contributedCommands.has('literaryCritic.resetKnowledgeOverride'));
-            assert.ok(contributedCommands.has('literaryCritic.openKnowledgeReviewPanel'));
-            assert.ok(contributedCommands.has('literaryCritic.nextKnowledgeEntity'));
-            assert.ok(contributedCommands.has('literaryCritic.previousKnowledgeEntity'));
+            assert.ok(contributedCommands.has('litCritic.refreshKnowledge'));
+            assert.ok(contributedCommands.has('litCritic.deleteKnowledgeEntity'));
+            assert.ok(contributedCommands.has('litCritic.resetKnowledgeOverride'));
+            assert.ok(contributedCommands.has('litCritic.openKnowledgeReviewPanel'));
+            assert.ok(contributedCommands.has('litCritic.nextKnowledgeEntity'));
+            assert.ok(contributedCommands.has('litCritic.previousKnowledgeEntity'));
         });
 
         it('should handle finding navigation', () => {

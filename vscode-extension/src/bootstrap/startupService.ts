@@ -58,7 +58,7 @@ export class StartupService {
      * Find the repo root (directory containing REPO_MARKER).
      *
      * Resolution order:
-     *   1. The `literaryCritic.repoPath` setting (explicit override).
+     *   1. The `litCritic.repoPath` setting (explicit override).
      *   2. Walk up from each workspace folder.
      */
     findRepoRoot(): string | undefined {
@@ -170,7 +170,7 @@ export class StartupService {
             }
 
             if (action === 'Open Settings') {
-                await this.ports.openSettings('literaryCritic.repoPath');
+                await this.ports.openSettings('litCritic.repoPath');
                 const candidate = this.ports.getConfiguredRepoPathAfterSettingsEdit();
                 const validation = validateRepoPath(candidate || undefined);
                 if (validation.ok) {

@@ -15,18 +15,10 @@ describe('DiscussionPanel (Real)', () => {
     let mockVscode: any;
     let panel: any;
     let mockWebviewView: MockWebviewView;
-    let mockApiClient: any;
 
     beforeEach(() => {
         mockVscode = createFreshMockVscode();
         mockWebviewView = new MockWebviewView();
-
-        // Mock ApiClient
-        mockApiClient = {
-            streamDiscuss: (_message: string, _onToken: any, _onDone: any, _onError: any) => {
-                return () => {};
-            },
-        };
 
         const module = proxyquire('../../vscode-extension/src/discussionViewProvider', {
             'vscode': mockVscode,
@@ -36,7 +28,7 @@ describe('DiscussionPanel (Real)', () => {
 
     /** Helper: create a provider instance with the mock view already resolved. */
     function createTestPanel() {
-        const p = new DiscussionPanel(() => mockApiClient);
+        const p = new DiscussionPanel();
         // Simulate VS Code calling resolveWebviewView when the sidebar section opens
         p.resolveWebviewView(mockWebviewView, {}, {});
         return p;
@@ -49,7 +41,7 @@ describe('DiscussionPanel (Real)', () => {
     });
 
     describe('constructor', () => {
-        it('should create panel with API client', () => {
+        it('should create panel', () => {
             panel = createTestPanel();
             assert.ok(panel);
         });
@@ -59,7 +51,7 @@ describe('DiscussionPanel (Real)', () => {
         it('should create webview panel on first show', () => {
             panel = createTestPanel();
 
-            panel.show(sampleFinding, 1, 3, false);
+            panel.show(sampleFinding, 1, 3);
 
             assert.ok(mockWebviewView);
             assert.equal(mockWebviewView.visible, true);
@@ -68,8 +60,8 @@ describe('DiscussionPanel (Real)', () => {
         it('should reuse existing panel on subsequent shows', () => {
             panel = createTestPanel();
 
-            panel.show(sampleFinding, 1, 3, false);
-            panel.show(sampleFinding, 2, 3, false);
+            panel.show(sampleFinding, 1, 3);
+            panel.show(sampleFinding, 2, 3);
 
             // Same view object is reused (not recreated)
             assert.ok(true);
@@ -78,7 +70,7 @@ describe('DiscussionPanel (Real)', () => {
         it('should generate HTML with finding details', () => {
             panel = createTestPanel();
 
-            panel.show(sampleFinding, 1, 3, false);
+            panel.show(sampleFinding, 1, 3);
 
             assert.match(mockWebviewView.webview.html, /rhythm breaks/);
             assert.match(mockWebviewView.webview.html, /major/i);
@@ -87,7 +79,7 @@ describe('DiscussionPanel (Real)', () => {
         it('should show progress in HTML (1/3)', () => {
             panel = createTestPanel();
 
-            panel.show(sampleFinding, 1, 3, false);
+            panel.show(sampleFinding, 1, 3);
 
             assert.match(mockWebviewView.webview.html, /Finding\s*<strong>1\/3<\/strong>/);
         });
@@ -95,7 +87,7 @@ describe('DiscussionPanel (Real)', () => {
         it('should include severity color in HTML', () => {
             panel = createTestPanel();
 
-            panel.show(sampleFinding, 1, 3, false);
+            panel.show(sampleFinding, 1, 3);
 
             // Should have color style for major findings
             assert.match(mockWebviewView.webview.html, /#ff9800/i); // major = orange
@@ -104,7 +96,7 @@ describe('DiscussionPanel (Real)', () => {
         it('should format line range in HTML', () => {
             panel = createTestPanel();
 
-            panel.show(sampleFinding, 1, 3, false);
+            panel.show(sampleFinding, 1, 3);
 
             assert.match(mockWebviewView.webview.html, /Lines 42.*45/);
         });
@@ -112,97 +104,20 @@ describe('DiscussionPanel (Real)', () => {
         it('should include options list in HTML', () => {
             panel = createTestPanel();
 
-            panel.show(sampleFinding, 1, 3, false);
+            panel.show(sampleFinding, 1, 3);
 
             assert.match(mockWebviewView.webview.html, /Rewrite for smoother rhythm/);
             assert.match(mockWebviewView.webview.html, /<ol>/); // ordered list
-        });
-
-        it('should show ambiguity buttons when isAmbiguity=true', () => {
-            panel = createTestPanel();
-
-            panel.show(sampleFinding, 1, 3, true);
-
-            assert.match(mockWebviewView.webview.html, /ambiguity-buttons/);
-            assert.match(mockWebviewView.webview.html, /Intentional/);
-            assert.match(mockWebviewView.webview.html, /Accidental/);
-        });
-
-        it('should hide ambiguity buttons when isAmbiguity=false', () => {
-            panel = createTestPanel();
-
-            panel.show(sampleFinding, 1, 3, false);
-
-            // Should not render ambiguity action markup/buttons.
-            const html = mockWebviewView.webview.html;
-            const hasAmbiguityButtons = html.includes('<div class="ambiguity-buttons">')
-                || html.includes("type:'ambiguity', intentional:true")
-                || html.includes("type:'ambiguity', intentional:false")
-                || html.includes('>Intentional<')
-                || html.includes('>Accidental<');
-            assert.ok(!hasAmbiguityButtons);
-        });
-
-        it('should include action buttons in HTML', () => {
-            panel = createTestPanel();
-
-            panel.show(sampleFinding, 1, 3, false);
-
-            assert.match(mockWebviewView.webview.html, /Accept/);
-            assert.match(mockWebviewView.webview.html, /Reject/);
-            assert.match(mockWebviewView.webview.html, /Review/);
-            assert.doesNotMatch(mockWebviewView.webview.html, /Export Learning/);
-        });
-
-        it('should allow vertically resizing the discussion input textarea', () => {
-            panel = createTestPanel();
-
-            panel.show(sampleFinding, 1, 3, false);
-
-            const html = mockWebviewView.webview.html;
-            assert.match(html, /resize:\s*vertical/);
-            assert.match(html, /max-height:\s*40vh/);
-            assert.ok(!html.includes('resize: none'));
         });
 
         it('should render the latest finding status badge', () => {
             panel = createTestPanel();
             const acceptedFinding = { ...sampleFinding, status: 'accepted' };
 
-            panel.show(acceptedFinding, 1, 3, false);
+            panel.show(acceptedFinding, 1, 3);
 
             assert.match(mockWebviewView.webview.html, /status-accepted/);
             assert.match(mockWebviewView.webview.html, />accepted</);
-        });
-
-        it('should render archived pre-edit context when a discussion transition is provided', () => {
-            panel = createTestPanel();
-
-            const findingAfterReview = {
-                ...sampleFinding,
-                evidence: 'Updated evidence',
-                discussion_turns: [],
-            };
-
-            panel.show(
-                findingAfterReview,
-                1,
-                3,
-                false,
-                {
-                    previousFinding: sampleFinding,
-                    previousTurns: [
-                        { role: 'assistant', content: 'Original recommendation.' },
-                        { role: 'user', content: 'I revised this part.' },
-                    ],
-                    note: 'Finding re-evaluated after scene edits. Starting a new discussion context.',
-                },
-            );
-
-            assert.match(mockWebviewView.webview.html, /Previous context \(before scene edits\)/);
-            assert.match(mockWebviewView.webview.html, /Original recommendation\./);
-            assert.match(mockWebviewView.webview.html, /I revised this part\./);
-            assert.ok(!mockWebviewView.webview.html.includes('No prior discussion turns.'));
         });
 
         it('should render read-only notice when provided for closed sessions', () => {
@@ -212,8 +127,6 @@ describe('DiscussionPanel (Real)', () => {
                 sampleFinding,
                 1,
                 3,
-                false,
-                undefined,
                 'Viewing completed session — actions will reopen it.',
             );
 
@@ -222,27 +135,10 @@ describe('DiscussionPanel (Real)', () => {
         });
     });
 
-    describe('notifySceneChange', () => {
-        it('should post scene change message to webview', () => {
-            panel = createTestPanel();
-            panel.show(sampleFinding, 1, 3, false);
-
-            let messagePosted = false;
-            mockWebviewView.webview.postMessage = (msg: any) => {
-                messagePosted = true;
-                assert.equal(msg.type, 'sceneChange');
-            };
-
-            panel.notifySceneChange({ adjusted: 2, stale: 1, re_evaluated: [] });
-
-            assert.ok(messagePosted);
-        });
-    });
-
     describe('close', () => {
         it('should reset the view to idle HTML state', () => {
             panel = createTestPanel();
-            panel.show(sampleFinding, 1, 3, false);
+            panel.show(sampleFinding, 1, 3);
 
             panel.close();
 
@@ -252,11 +148,10 @@ describe('DiscussionPanel (Real)', () => {
     });
 
     describe('dispose', () => {
-        it('should abort any active stream and not throw', () => {
+        it('should not throw', () => {
             panel = createTestPanel();
-            panel.show(sampleFinding, 1, 3, false);
+            panel.show(sampleFinding, 1, 3);
 
-            // dispose() cancels pending streams; VS Code owns the view so it stays visible
             assert.doesNotThrow(() => panel.dispose());
         });
     });

@@ -1,4 +1,4 @@
-import { WorkflowDeps } from './sessionWorkflowController';
+import { WorkflowDeps } from './workflowController';
 
 export async function cmdRefreshLearning(deps: WorkflowDeps): Promise<void> {
     try {

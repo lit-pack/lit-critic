@@ -6,7 +6,7 @@ import { REPO_MARKER } from '../../vscode-extension/src/repoPreflight';
 
 // ---------------------------------------------------------------------------
 // The project root is one level up from the vscode-extension/ directory where
-// mocha runs.  It contains lit-critic-web.py, which is required for
+// mocha runs.  It contains lit-critic-server.py, which is required for
 // validateRepoPath to return ok: true.
 // ---------------------------------------------------------------------------
 const PROJECT_ROOT = path.resolve(process.cwd(), '..');
@@ -38,7 +38,7 @@ function makePorts(overrides: Partial<StartupPorts> = {}): StartupPorts {
 
 describe('StartupService.findRepoRoot', () => {
     it('returns configured path when it points to a directory with the marker', () => {
-        // Use the real project root as a valid path (lit-critic-web.py lives there).
+        // Use the real project root as a valid path (lit-critic-server.py lives there).
         const ports = makePorts({
             getConfiguredRepoPath: () => PROJECT_ROOT,
             pathExists: (p) => p.includes(REPO_MARKER),
@@ -46,7 +46,7 @@ describe('StartupService.findRepoRoot', () => {
         const svc = new StartupService(ports);
         const result = svc.findRepoRoot();
         // validateRepoPath checks the real filesystem; since PROJECT_ROOT does
-        // contain lit-critic-web.py, the path is valid.
+        // contain lit-critic-server.py, the path is valid.
         assert.ok(result, 'should resolve configured path');
     });
 
@@ -152,7 +152,7 @@ describe('StartupService.detectProjectPath', () => {
 describe('StartupService.ensureRepoRootWithRecovery', () => {
     it('returns immediately when configured path already valid (uses real fs, project root)', async () => {
         const ports = makePorts({
-            // Feed back the real project root — it contains lit-critic-web.py
+            // Feed back the real project root — it contains lit-critic-server.py
             getConfiguredRepoPath: () => PROJECT_ROOT,
         });
         const svc = new StartupService(ports);
@@ -165,7 +165,7 @@ describe('StartupService.ensureRepoRootWithRecovery', () => {
             getConfiguredRepoPath: () => '',
             getWorkspaceFolders: () => [{ uri: { fsPath: PROJECT_ROOT } }],
             // pathExists is used inside findRepoRootFromWorkspace to locate the
-            // marker. PROJECT_ROOT contains lit-critic-web.py so this returns true.
+            // marker. PROJECT_ROOT contains lit-critic-server.py so this returns true.
             pathExists: (p) => p.endsWith(REPO_MARKER),
         });
         const svc = new StartupService(ports);
@@ -222,7 +222,7 @@ describe('StartupService.ensureRepoRootWithRecovery', () => {
             getConfiguredRepoPath: () => '/invalid/path',
             getWorkspaceFolders: () => undefined,
             showErrorModal: async () => 'Select Folder…',
-            // Use the real project root — it contains lit-critic-web.py so
+            // Use the real project root — it contains lit-critic-server.py so
             // validateRepoPath will return ok: true and exit the loop.
             showFolderPicker: async () => PROJECT_ROOT,
             updateConfiguredRepoPath: async (v) => { savedPath = v; },

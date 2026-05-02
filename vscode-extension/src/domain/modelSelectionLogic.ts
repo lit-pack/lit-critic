@@ -7,26 +7,29 @@ export interface AnalysisModelConfigReader {
     get<T>(section: string, defaultValue: T): T;
 }
 
-type AnalysisMode = 'quick' | 'deep';
+export type AnalysisModel = 'opus' | 'sonnet' | 'haiku';
+
+const VALID_ANALYSIS_MODELS: ReadonlySet<string> = new Set(['opus', 'sonnet', 'haiku']);
 
 /**
- * Resolve configured analysis mode.
+ * Resolve the configured analysis model.
  *
- * Preferred key: literaryCritic.analysisMode
- * Default: deep (backward-compatible behavior)
+ * Key: litCritic.analysisModel
+ * Default: sonnet
  */
-export function getConfiguredAnalysisMode(config: AnalysisModelConfigReader): AnalysisMode {
-    const mode = config.get<string>('analysisMode', 'deep');
-    if (mode === 'quick' || mode === 'deep') {
-        return mode;
+export function getConfiguredAnalysisModel(config: AnalysisModelConfigReader): AnalysisModel {
+    const model = config.get<string>('analysisModel', 'sonnet');
+    if (VALID_ANALYSIS_MODELS.has(model)) {
+        return model as AnalysisModel;
     }
-    return 'deep';
+    return 'sonnet';
 }
 
-export function buildAnalysisStartStatusMessage(mode: AnalysisMode = 'deep'): string {
-    if (mode === 'quick') {
-        return 'Running quick analysis...';
-    }
-
-    return 'Running deep analysis...';
+export function buildAnalysisStartStatusMessage(model: AnalysisModel = 'sonnet'): string {
+    const labels: Record<AnalysisModel, string> = {
+        opus: 'Running analysis (Opus)...',
+        sonnet: 'Running analysis (Sonnet)...',
+        haiku: 'Running analysis (Haiku)...',
+    };
+    return labels[model] ?? 'Running analysis...';
 }

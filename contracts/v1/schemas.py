@@ -1,5 +1,7 @@
 """Pydantic contracts for the v1 stateless core API."""
 
+from __future__ import annotations
+
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field

@@ -2,7 +2,7 @@
  * Server Manager — spawns and manages the FastAPI backend process.
  *
  * Lifecycle:
- *   1. On activation, spawn `python lit-critic-web.py --port <port>`
+ *   1. On activation, spawn `python lit-critic-server.py --port <port>`
  *   2. Health-check loop until the server responds
  *   3. On deactivation (or stop command), kill the process
  */
@@ -44,7 +44,7 @@ export class ServerManager implements vscode.Disposable {
         this.onReady = this._onReadyEmitter.event;
         this.onStopped = this._onStoppedEmitter.event;
 
-        const config = vscode.workspace.getConfiguration('literaryCritic');
+        const config = vscode.workspace.getConfiguration('litCritic');
         this._port = config.get<number>('serverPort', 8000);
 
         this._readyTimeoutMs = options?.readyTimeoutMs ?? 120000;
@@ -88,7 +88,7 @@ export class ServerManager implements vscode.Disposable {
             return;
         }
 
-        const config = vscode.workspace.getConfiguration('literaryCritic');
+        const config = vscode.workspace.getConfiguration('litCritic');
         this._port = config.get<number>('serverPort', 8000);
 
         // Find suitable Python interpreter
@@ -97,13 +97,13 @@ export class ServerManager implements vscode.Disposable {
         if (!pythonPath) {
             const message = 'No suitable Python found (requires >= 3.10). ' +
                            'Please install Python 3.10+ or configure ' +
-                           '"literaryCritic.pythonPath" in settings.';
+                           '"litCritic.pythonPath" in settings.';
             vscode.window.showErrorMessage(message);
             this.outputChannel.appendLine(`ERROR: ${message}`);
             throw new Error(message);
         }
 
-        const scriptPath = path.join(this._repoRoot, 'lit-critic-web.py');
+        const scriptPath = path.join(this._repoRoot, 'lit-critic-server.py');
 
         // Split pythonPath to handle cases like "py -3"
         const pythonParts = pythonPath.split(' ');
@@ -120,7 +120,7 @@ export class ServerManager implements vscode.Disposable {
             // PYTHONUNBUFFERED=1 forces Python to flush stdout immediately instead
             // of block-buffering it when piped, so print() output appears in the
             // output channel without delay.
-            env: { ...process.env, PYTHONUNBUFFERED: '1' },
+            env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
 
@@ -202,7 +202,7 @@ export class ServerManager implements vscode.Disposable {
      * Tries configured path first, then auto-detects platform-specific candidates.
      */
     private async findPython(): Promise<string | null> {
-        const config = vscode.workspace.getConfiguration('literaryCritic');
+        const config = vscode.workspace.getConfiguration('litCritic');
         const configuredPath = config.get<string>('pythonPath');
         
         // If user configured a specific path (not default 'python'), verify and use it

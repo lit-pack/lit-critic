@@ -10,7 +10,7 @@
  */
 
 import * as vscode from 'vscode';
-import { Finding, SessionInfo } from './types';
+import { AnalysisSnapshot, Finding, SessionInfo } from './types';
 
 const SEVERITY_MAP: Record<string, vscode.DiagnosticSeverity> = {
     'critical': vscode.DiagnosticSeverity.Error,
@@ -34,7 +34,7 @@ export class DiagnosticsProvider implements vscode.Disposable {
     }
 
     constructor() {
-        this.collection = vscode.languages.createDiagnosticCollection('literaryCritic');
+        this.collection = vscode.languages.createDiagnosticCollection('litCritic');
     }
 
     /**
@@ -48,21 +48,32 @@ export class DiagnosticsProvider implements vscode.Disposable {
     }
 
     /**
-     * Refresh all diagnostics from session info (contains all findings with status).
+     * Update diagnostics from an analysis snapshot (new model).
+     * Displays active findings; suppresses silenced and resolved findings.
+     */
+    updateFromSnapshot(snapshot: AnalysisSnapshot): void {
+        if (snapshot.scene_paths.length > 0) {
+            this._scenePath = snapshot.scene_paths[0];
+            this._scenePaths = snapshot.scene_paths;
+        }
+        this.updateFromFindings(snapshot.findings);
+    }
+
+    /**
+     * Refresh diagnostics from session info (legacy — for backward compat with old sessions).
      */
     updateFromSession(session: SessionInfo): void {
         if (!this.scenePath || !session.findings_status) {
             return;
         }
-
-        // We need the full findings (with line numbers) — session info only has summary.
-        // This method is a convenience; prefer updateFromFindings() with full data.
+        // Prefer updateFromFindings() with full data; this is a legacy convenience stub.
         this.collection.clear();
     }
 
     /**
      * Update diagnostics from a full list of findings.
      * Groups findings by their scene_path and sets diagnostics per URI.
+     * Active findings are shown; silenced and resolved findings are suppressed.
      * Call this after analysis completes or after any finding status change.
      */
     updateFromFindings(findings: Finding[]): void {
@@ -74,8 +85,9 @@ export class DiagnosticsProvider implements vscode.Disposable {
         const grouped = new Map<string, vscode.Diagnostic[]>();
 
         for (const finding of findings) {
-            // Skip findings that have been resolved
-            if (finding.status === 'accepted' || finding.status === 'rejected' ||
+            // Suppress silenced, resolved, and legacy-resolved findings
+            if (finding.status === 'silenced' || finding.status === 'resolved' ||
+                finding.status === 'accepted' || finding.status === 'rejected' ||
                 finding.status === 'withdrawn') {
                 continue;
             }
@@ -98,7 +110,7 @@ export class DiagnosticsProvider implements vscode.Disposable {
     }
 
     /**
-     * Update a single finding's diagnostic (e.g., after discussion changes it).
+     * Update a single finding's diagnostic (e.g., after a silence action changes its status).
      */
     updateSingleFinding(finding: Finding): void {
         if (!this.scenePath) {
@@ -110,11 +122,12 @@ export class DiagnosticsProvider implements vscode.Disposable {
         const existing = this.collection.get(uri) || [];
         const updated: vscode.Diagnostic[] = [];
 
-        // Replace or remove the diagnostic for this finding number
+        // Replace or remove the diagnostic for this finding
         for (const diag of existing) {
             if (diag.code === finding.number) {
-                // Skip if resolved
-                if (finding.status === 'accepted' || finding.status === 'rejected' ||
+                // Remove if silenced, resolved, or legacy-resolved
+                if (finding.status === 'silenced' || finding.status === 'resolved' ||
+                    finding.status === 'accepted' || finding.status === 'rejected' ||
                     finding.status === 'withdrawn') {
                     continue;
                 }

@@ -2,7 +2,7 @@ import { strict as assert } from 'assert';
 
 import {
     buildAnalysisStartStatusMessage,
-    getConfiguredAnalysisMode,
+    getConfiguredAnalysisModel,
 } from '../../vscode-extension/src/domain/modelSelectionLogic';
 
 function makeConfig(overrides: {
@@ -31,29 +31,43 @@ function makeConfig(overrides: {
 }
 
 describe('domain/modelSelectionLogic', () => {
-    it('uses deep as default analysis mode', () => {
+    it('uses sonnet as default analysis model', () => {
         const config = makeConfig({ values: {} });
-        assert.equal(getConfiguredAnalysisMode(config), 'deep');
+        assert.equal(getConfiguredAnalysisModel(config), 'sonnet');
     });
 
-    it('returns configured analysis mode when valid', () => {
-        const config = makeConfig({ values: { analysisMode: 'quick' } });
-        assert.equal(getConfiguredAnalysisMode(config), 'quick');
+    it('returns opus when configured', () => {
+        const config = makeConfig({ values: { analysisModel: 'opus' } });
+        assert.equal(getConfiguredAnalysisModel(config), 'opus');
     });
 
-    it('falls back to deep for invalid analysis mode values', () => {
-        const config = makeConfig({ values: { analysisMode: 'turbo' } });
-        assert.equal(getConfiguredAnalysisMode(config), 'deep');
+    it('returns haiku when configured', () => {
+        const config = makeConfig({ values: { analysisModel: 'haiku' } });
+        assert.equal(getConfiguredAnalysisModel(config), 'haiku');
     });
 
-    it('builds quick status message', () => {
-        const message = buildAnalysisStartStatusMessage('quick');
-        assert.equal(message, 'Running quick analysis...');
+    it('falls back to sonnet for invalid analysis model values', () => {
+        const config = makeConfig({ values: { analysisModel: 'turbo' } });
+        assert.equal(getConfiguredAnalysisModel(config), 'sonnet');
     });
 
-    it('builds deep status message by default', () => {
+    it('builds opus status message', () => {
+        const message = buildAnalysisStartStatusMessage('opus');
+        assert.equal(message, 'Running analysis (Opus)...');
+    });
+
+    it('builds sonnet status message', () => {
+        const message = buildAnalysisStartStatusMessage('sonnet');
+        assert.equal(message, 'Running analysis (Sonnet)...');
+    });
+
+    it('builds haiku status message', () => {
+        const message = buildAnalysisStartStatusMessage('haiku');
+        assert.equal(message, 'Running analysis (Haiku)...');
+    });
+
+    it('builds sonnet status message by default', () => {
         const message = buildAnalysisStartStatusMessage();
-        assert.equal(message, 'Running deep analysis...');
+        assert.equal(message, 'Running analysis (Sonnet)...');
     });
-
 });

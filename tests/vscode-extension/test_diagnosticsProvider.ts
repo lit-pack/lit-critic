@@ -43,7 +43,7 @@ describe('DiagnosticsProvider (Real)', () => {
             };
             
             diagnosticsProvider = new DiagnosticsProvider();
-            assert.equal(collectionName, 'literaryCritic');
+            assert.equal(collectionName, 'litCritic');
         });
     });
 

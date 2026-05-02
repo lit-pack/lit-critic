@@ -118,7 +118,7 @@ To remove a correction (if the extraction later fixes itself): right-click the e
 
 ## Locking entries
 
-If you've reviewed an entry and are satisfied with it, you can **lock** it to prevent future automatic updates:
+If you've reviewed an entry and are satisfied with it, you can **lock** it to prevent **Refresh Knowledge** from overwriting it in future runs:
 
 - Right-click an entity in the Knowledge tree → **Toggle Knowledge Lock**
 

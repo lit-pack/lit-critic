@@ -18,15 +18,71 @@ export interface Finding {
     ambiguity_type: string | null;
     stale: boolean;
 
-    // Discussion state (present when include_state=True)
+    /**
+     * New model states: active | silenced | resolved
+     * Legacy interactive states (old sessions): pending | accepted | rejected | withdrawn | escalated | discussed | revised | conceded
+     */
     status?: string;
+
+    // Legacy interactive fields (present in old sessions only)
     author_response?: string;
     discussion_turns?: Array<{ role: string; content: string }>;
     revision_history?: Array<Record<string, unknown>>;
     outcome_reason?: string;
 }
 
-/** UI-only transition payload used when review re-evaluates a finding context. */
+/** Analysis snapshot — the lightweight replacement for the interactive session model. */
+export interface AnalysisSnapshot {
+    id: number;
+    scene_paths: string[];
+    depth_mode: 'quick' | 'deep';
+    models_used: { frontier?: string; checker?: string; quick?: string };
+    created_at: string;
+    scene_hashes: Record<string, string>;
+    index_context_hash?: string | null;
+    findings: Finding[];
+    finding_count: number;
+    active_count: number;
+    silenced_count: number;
+}
+
+/** Silence rule from the backend. */
+export interface SilenceRule {
+    id: number;
+    rule_type: 'instance' | 'pattern' | 'category';
+    scope: 'scene' | 'project';
+    scene_path: string;
+    finding_id: number | null;
+    lens: string;
+    severity: string;
+    text_pattern: string;
+    note: string;
+    suspended: boolean;
+    created_at: string;
+    suspended_at: string;
+}
+
+/** Response from POST /api/findings/{id}/explain. */
+export interface ExplainResponse {
+    finding_id: number;
+    depth: string;
+    explanation: string;
+    model_used: string;
+}
+
+/** Request body for POST /api/silence-rules. */
+export interface SilenceRuleCreateRequest {
+    rule_type: 'instance' | 'pattern' | 'category';
+    scope?: 'scene' | 'project';
+    scene_path?: string;
+    finding_id?: number;
+    lens?: string;
+    severity?: string;
+    text_pattern?: string;
+    note?: string;
+}
+
+/** UI-only transition payload used when review re-evaluates a finding context (legacy). */
 export interface DiscussionContextTransition {
     previousFinding: Finding;
     previousTurns: Array<{ role: string; content: string }>;
@@ -221,7 +277,7 @@ export interface DiscussResponse {
 
 /** SSE event from /api/analyze/progress */
 export interface AnalysisProgressEvent {
-    type: 'status' | 'lens_complete' | 'lens_error' | 'warning' | 'error' | 'complete' | 'done';
+    type: 'status' | 'code_checks_complete' | 'lens_complete' | 'lens_error' | 'warning' | 'error' | 'complete' | 'done';
     message?: string;
     lens?: string;
     total_findings?: number;
@@ -282,51 +338,6 @@ export interface CheckSessionResponse {
     total_findings?: number;
 }
 
-/** Session summary from GET /api/sessions */
-export interface SessionSummary {
-    id: number;
-    status: 'active' | 'completed' | 'abandoned';
-    depth_mode?: 'quick' | 'deep' | string;
-    scene_path: string;
-    scene_paths?: string[];
-    model: string;
-    created_at: string;
-    completed_at?: string;
-    total_findings: number;
-    accepted_count: number;
-    rejected_count: number;
-    withdrawn_count: number;
-    index_context_stale?: boolean;
-    index_changed_files?: string[];
-    rerun_recommended?: boolean;
-    /** Session-end disconfirming meta-observation (Change D). */
-    session_summary?: string;
-}
-
-/** Session detail from GET /api/sessions/{id} */
-export interface SessionDetail extends SessionSummary {
-    scene_hash: string;
-    current_index: number;
-    glossary_issues: string[];
-    findings: Array<{
-        id: number;
-        number: number;
-        severity: string;
-        lens: string;
-        status: string;
-        location: string;
-        evidence: string;
-        impact?: string;
-        options?: string[];
-        flagged_by?: string[];
-        author_response?: string;
-        discussion_turns?: Array<{ role: string; content: string }>;
-        revision_history?: Array<Record<string, unknown>>;
-        outcome_reason?: string;
-        line_start: number | null;
-        line_end: number | null;
-    }>;
-}
 
 /** Scene projection row from GET /api/scenes */
 export interface SceneProjection {
@@ -434,6 +445,8 @@ export interface KnowledgeEntityTreeItemPayload {
     flagged?: boolean;
     /** Whether the entity's source input is stale (set by Check for Changes). */
     stale?: boolean;
+    /** Whether the entity's source scene no longer exists on disk (orphaned). */
+    orphaned?: boolean;
 }
 
 export type KnowledgeReviewPanelStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
@@ -574,7 +587,27 @@ export interface InputStalenessEntry {
     affected_sessions: number[];
 }
 
+/** One orphaned scene entry from GET /api/inputs/staleness */
+export interface OrphanedSceneEntry {
+    scene_key: string;
+    affected_sessions: number[];
+    affected_silence_rules: number[];
+}
+
 /** Response from GET /api/inputs/staleness */
 export interface InputStalenessResponse {
     stale_inputs: InputStalenessEntry[];
+    orphaned_scenes?: OrphanedSceneEntry[];
+}
+
+/** One scene entry from GET /api/scenes/analyzable */
+export interface AnalyzableScene {
+    scene_key: string;
+    path: string;
+    status: 'extraction_due' | 'extracted';
+}
+
+/** Response from GET /api/scenes/analyzable */
+export interface AnalyzableScenesResponse {
+    analyzable_scenes: AnalyzableScene[];
 }

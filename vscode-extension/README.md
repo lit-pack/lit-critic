@@ -49,7 +49,7 @@ Open `vscode-extension/` in VS Code and press **F5**.
 
 Open the folder that contains `CANON.md`. The extension activates automatically when `CANON.md` is detected.
 
-> **If your novel project is outside the lit-critic installation folder**, set `literaryCritic.repoPath` in VS Code Settings to the full path of the lit-critic directory (the one containing `lit-critic-web.py`).
+> **If your novel project is outside the lit-critic installation folder**, set `litCritic.repoPath` in VS Code Settings to the full path of the lit-critic directory (the one containing `lit-critic-server.py`).
 
 ### 2. Run analysis
 
@@ -93,17 +93,17 @@ After writing or revising scenes, click **Refresh Knowledge** in the Knowledge v
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `literaryCritic.repoPath` | *(empty)* | Path to lit-critic installation — required when your novel project is outside the repo |
-| `literaryCritic.pythonPath` | `python` | Python interpreter |
-| `literaryCritic.serverPort` | `8000` | Local API server port |
-| `literaryCritic.analysisMode` | `deep` | Default analysis mode (`quick` or `deep`) |
-| `literaryCritic.modelSlotFrontier` | *(empty)* | Frontier model override (empty = use backend default) |
-| `literaryCritic.modelSlotDeep` | *(empty)* | Deep checker model override |
-| `literaryCritic.modelSlotQuick` | *(empty)* | Quick checker model override |
-| `literaryCritic.sceneFolder` | `text` | Subfolder within the project to scan for scene files |
-| `literaryCritic.sceneExtensions` | `["txt"]` | File extensions treated as scene files |
-| `literaryCritic.autoStartServer` | `true` | Auto-start the local API server on activation |
-| `literaryCritic.knowledgeReviewPassTrigger` | `always` | When the reconciliation review pass runs after a refresh |
+| `litCritic.repoPath` | *(empty)* | Path to lit-critic installation — required when your novel project is outside the repo |
+| `litCritic.pythonPath` | `python` | Python interpreter |
+| `litCritic.serverPort` | `8000` | Local API server port |
+| `litCritic.analysisMode` | `deep` | Default analysis mode (`quick` or `deep`) |
+| `litCritic.modelSlotFrontier` | *(empty)* | Frontier model override (empty = use backend default) |
+| `litCritic.modelSlotDeep` | *(empty)* | Deep checker model override |
+| `litCritic.modelSlotQuick` | *(empty)* | Quick checker model override |
+| `litCritic.sceneFolder` | `text` | Subfolder within the project to scan for scene files |
+| `litCritic.sceneExtensions` | `["txt"]` | File extensions treated as scene files |
+| `litCritic.autoStartServer` | `true` | Auto-start the local API server on activation |
+| `litCritic.knowledgeReviewPassTrigger` | `always` | When the reconciliation review pass runs after a refresh |
 
 ---
 

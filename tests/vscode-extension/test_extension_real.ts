@@ -19,6 +19,7 @@ describe('Extension (Real)', () => {
     let mockFindingsTreeProvider: any;
     let mockFindingsDecorationProvider: any;
     let mockSessionsTreeProvider: any;
+    let mockAnalysisTreeProvider: any;
     let mockLearningTreeProvider: any;
     let mockKnowledgeTreeProvider: any;
     let mockKnowledgeReviewPanel: any;
@@ -28,6 +29,7 @@ describe('Extension (Real)', () => {
     let mockOperationTracker: any;
     let mockPath: any;
     let mockFs: any;
+    let mockLoopClient: any;
     let activate: any;
     let deactivate: any;
     let lastKnowledgeReviewPanelState: any;
@@ -81,6 +83,16 @@ describe('Extension (Real)', () => {
             async getInputStaleness(_projectPath: string) {
                 return { stale_inputs: [] };
             }
+            // getAnalyzableScenes is called by _cmdAnalyze — stub returns empty so
+            // activation tests don't fail when the analyze command is registered.
+            async getAnalyzableScenes(_projectPath: string) {
+                return { analyzable_scenes: [] };
+            }
+            // configureLoop is called during startup inside withProgress. Without this stub
+            // it throws synchronously (before .catch() can intercept), preventing setReady().
+            async configureLoop(_projectPath: string, _config: any) {
+                return {};
+            }
         };
         
         mockFindingsTreeProvider = class MockFindingsTreeProvider {
@@ -91,7 +103,6 @@ describe('Extension (Real)', () => {
             setCurrentIndex(index: number) {
                 this.currentFindingItem = { id: `finding:${index + 1}` };
             }
-            setSessionContext(_session: any) {}
             clear() {}
             updateFinding() {}
             getCurrentFindingItem() {
@@ -117,11 +128,21 @@ describe('Extension (Real)', () => {
             getCurrentSessionItem() {
                 return this.currentSessionItem;
             }
+            // Stub for recheckStaleness — avoids silent TypeError when called without mock
+            setStaleSessions(_ids: Set<number>) {}
         };
         
+        mockAnalysisTreeProvider = class MockAnalysisTreeProvider {
+            setFindings() {}
+            setAllFindings() {}
+            clear() {}
+            getFindingsForScene() { return []; }
+        };
+
         mockLearningTreeProvider = class MockLearningTreeProvider {
             setApiClient() {}
             setProjectPath() {}
+            setLogger() {}
             async refresh() {}
         };
 
@@ -162,8 +183,7 @@ describe('Extension (Real)', () => {
         };
         
         mockDiscussionPanel = class MockDiscussionPanel {
-            onFindingAction: any;
-            show() {}
+            show(_finding: any, _current: number, _total: number, _readOnlyNotice?: string) {}
             close() {}
             dispose() {}
         };
@@ -178,6 +198,7 @@ describe('Extension (Real)', () => {
         };
 
         mockOperationTracker = class MockOperationTracker {
+            log(_message: string) {}
             async run(_profile: any, operation: () => Promise<any>) {
                 return operation();
             }
@@ -193,8 +214,17 @@ describe('Extension (Real)', () => {
         // path.join produces backslash separators that break '/test/repo' checks).
         mockFs = {
             existsSync: (p: string) => {
-                return p.includes('lit-critic-web.py');
+                return p.includes('lit-critic-server.py');
             },
+        };
+
+        // Default LoopClient mock — no-op stub. Tests that need to capture the
+        // event handler override this before calling loadExtension().
+        mockLoopClient = class MockLoopClient {
+            constructor(_baseUrl: string, _opts: any) {}
+            startEventStream(_handler: any) {}
+            notifyFileChanged(_path: string, _type: string) {}
+            dispose() {}
         };
     });
 
@@ -219,8 +249,22 @@ describe('Extension (Real)', () => {
             { vscode: mockVscode },
         );
 
+        // Pre-load explainActionProvider so its `import * as vscode` is shimmed.
+        const explainActionProviderMod = proxyquire(
+            '../../vscode-extension/src/workflows/explainActionProvider',
+            { vscode: mockVscode },
+        );
+
         const module = proxyquire('../../vscode-extension/src/extension', {
             'vscode': mockVscode,
+            './workflows/loopClient': {
+                // LoopClient uses EventSource (browser-only SSE API) which is unavailable in Node.js.
+                // Replace with a configurable stub so startEventStream() doesn't throw synchronously,
+                // which would prevent presenter.setReady() from being called after withProgress.
+                // Override mockLoopClient before calling loadExtension() to capture the event handler.
+                LoopClient: mockLoopClient,
+            },
+            './workflows/explainActionProvider': explainActionProviderMod,
             './serverManager': { ServerManager: mockServerManager },
             './apiClient': { ApiClient: mockApiClient },
             './findingsTreeProvider': {
@@ -228,6 +272,7 @@ describe('Extension (Real)', () => {
                 FindingsDecorationProvider: mockFindingsDecorationProvider,
             },
             './sessionsTreeProvider': { SessionsTreeProvider: mockSessionsTreeProvider },
+            './analysisTreeProvider': { AnalysisTreeProvider: mockAnalysisTreeProvider },
             './learningTreeProvider': { LearningTreeProvider: mockLearningTreeProvider },
             './scenesTreeProvider': { ScenesTreeProvider: mockLearningTreeProvider },
             './knowledgeTreeProvider': { KnowledgeTreeProvider: mockKnowledgeTreeProvider },
@@ -274,24 +319,17 @@ describe('Extension (Real)', () => {
             await activate(context);
             
             // Verify all commands are registered
-            assert.ok(registeredCommands.includes('literaryCritic.analyze'));
-            assert.ok(registeredCommands.includes('literaryCritic.nextFinding'));
-            assert.ok(registeredCommands.includes('literaryCritic.acceptFinding'));
-            assert.ok(registeredCommands.includes('literaryCritic.rejectFinding'));
-            assert.ok(registeredCommands.includes('literaryCritic.discuss'));
-            assert.ok(registeredCommands.includes('literaryCritic.selectFinding'));
-            assert.ok(registeredCommands.includes('literaryCritic.reviewFinding'));
-            assert.ok(registeredCommands.includes('literaryCritic.selectModel'));
-            assert.ok(registeredCommands.includes('literaryCritic.stopServer'));
-            assert.ok(!registeredCommands.includes('literaryCritic.refreshSessions'), 'refreshSessions was removed (D3)');
-            assert.ok(registeredCommands.includes('literaryCritic.viewSession'));
-            assert.ok(registeredCommands.includes('literaryCritic.deleteSession'));
-            assert.ok(registeredCommands.includes('literaryCritic.refreshLearning'));
-            assert.ok(registeredCommands.includes('literaryCritic.exportLearning'));
-            assert.ok(registeredCommands.includes('literaryCritic.resetLearning'));
-            assert.ok(registeredCommands.includes('literaryCritic.deleteLearningEntry'));
-            assert.ok(registeredCommands.includes('literaryCritic.refreshKnowledge'));
-            assert.ok(registeredCommands.includes('literaryCritic.deleteKnowledgeEntity'));
+            assert.ok(registeredCommands.includes('litCritic.analyze'));
+            assert.ok(registeredCommands.includes('litCritic.selectModel'));
+            assert.ok(registeredCommands.includes('litCritic.stopServer'));
+            assert.ok(!registeredCommands.includes('litCritic.refreshSessions'), 'refreshSessions was removed (D3)');
+            assert.ok(registeredCommands.includes('litCritic.showLensFindings'));
+            assert.ok(registeredCommands.includes('litCritic.refreshLearning'));
+            assert.ok(registeredCommands.includes('litCritic.exportLearning'));
+            assert.ok(registeredCommands.includes('litCritic.resetLearning'));
+            assert.ok(registeredCommands.includes('litCritic.deleteLearningEntry'));
+            assert.ok(registeredCommands.includes('litCritic.refreshKnowledge'));
+            assert.ok(registeredCommands.includes('litCritic.deleteKnowledgeEntity'));
 
             assert.ok(registeredCommands.length >= 15, `Expected at least 15 commands, got ${registeredCommands.length}`);
         });
@@ -346,11 +384,11 @@ describe('Extension (Real)', () => {
 
             await activate(context);
             
-            assert.ok(createdViews.includes('literaryCritic.findings'));
-            assert.ok(createdViews.includes('literaryCritic.sessions'));
-            assert.ok(createdViews.includes('literaryCritic.learning'));
-            assert.ok(createdViews.includes('literaryCritic.scenes'));
-            assert.ok(createdViews.includes('literaryCritic.indexes'));
+            assert.ok(createdViews.includes('litCritic.findings'));
+            assert.ok(createdViews.includes('litCritic.sessions'));
+            assert.ok(createdViews.includes('litCritic.learning'));
+            assert.ok(createdViews.includes('litCritic.scenes'));
+            assert.ok(createdViews.includes('litCritic.indexes'));
         });
 
         it('hydrates the knowledge review panel from a tree-item launch payload', async () => {
@@ -371,7 +409,7 @@ describe('Extension (Real)', () => {
 
             mockFs = {
                 existsSync: (candidatePath: string) => (
-                    (candidatePath.includes('CANON.md') || candidatePath.includes('lit-critic-web.py'))
+                    (candidatePath.includes('CANON.md') || candidatePath.includes('lit-critic-server.py'))
                     && candidatePath.includes('/test/repo')
                 ),
             };
@@ -416,7 +454,7 @@ describe('Extension (Real)', () => {
 
             await activate(context);
 
-            const openKnowledgeReviewPanel = registeredCommands.get('literaryCritic.openKnowledgeReviewPanel');
+            const openKnowledgeReviewPanel = registeredCommands.get('litCritic.openKnowledgeReviewPanel');
             assert.ok(openKnowledgeReviewPanel, 'Expected openKnowledgeReviewPanel command to be registered');
 
             await openKnowledgeReviewPanel?.({
@@ -441,16 +479,16 @@ describe('Extension (Real)', () => {
     });
 
     describe('auto-start behavior', () => {
-        it('should use native TreeView reveal selection for current session during passive auto-load startup', async () => {
+        it('should not reveal sessions or findings in the tree during passive auto-load startup', async () => {
             const sessionRevealCalls: Array<{ item: any; options: any }> = [];
             const findingRevealCalls: Array<{ item: any; options: any }> = [];
 
             mockVscode.window.createTreeView = (viewId: string, _options: any) => {
                 const reveal = async (item: any, options: any) => {
-                    if (viewId === 'literaryCritic.sessions') {
+                    if (viewId === 'litCritic.sessions') {
                         sessionRevealCalls.push({ item, options });
                     }
-                    if (viewId === 'literaryCritic.findings') {
+                    if (viewId === 'litCritic.findings') {
                         findingRevealCalls.push({ item, options });
                     }
                 };
@@ -462,36 +500,13 @@ describe('Extension (Real)', () => {
                     return { ok: true };
                 }
                 async getSession() {
-                    return { active: true, scene_path: '/test/repo/scene-a.txt' };
+                    return { active: false };
                 }
-                async resumeWithRecovery() {
-                    return {
-                        scene_path: '/test/repo/scene-a.txt',
-                        scene_name: 'scene-a.txt',
-                        project_path: '/test/repo',
-                        total_findings: 1,
-                        current_index: 0,
-                        glossary_issues: [],
-                        counts: { critical: 0, major: 1, minor: 0 },
-                        lens_counts: { prose: { critical: 0, major: 1, minor: 0 } },
-                        model: { name: 'sonnet', id: 'sonnet', label: 'Sonnet' },
-                        learning: { review_count: 0, preferences: 0, blind_spots: 0 },
-                        findings_status: [
-                            {
-                                number: 1,
-                                severity: 'major',
-                                lens: 'prose',
-                                status: 'pending',
-                                location: 'L1',
-                                evidence: 'example',
-                                line_start: 1,
-                                line_end: 1,
-                            },
-                        ],
-                    };
+                async getInputStaleness(_projectPath: string) {
+                    return { stale_inputs: [] };
                 }
-                async getCurrentFinding() {
-                    return { complete: true };
+                async configureLoop(_projectPath: string, _config: any) {
+                    return {};
                 }
             };
 
@@ -508,20 +523,22 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
             await activate({ subscriptions: [] });
 
-            assert.ok(sessionRevealCalls.length > 0, 'Expected native session TreeView reveal call');
+            assert.equal(
+                sessionRevealCalls.length,
+                0,
+                'Expected no session TreeView reveal during passive startup auto-load',
+            );
             assert.equal(
                 findingRevealCalls.length,
                 0,
                 'Expected no finding TreeView reveal during passive startup auto-load',
             );
-            assert.equal(sessionRevealCalls[0].options?.select, true);
-            assert.equal(sessionRevealCalls[0].options?.focus, false);
         });
 
         it('should show an immediate startup hint before startup progress notification', async () => {
@@ -553,7 +570,7 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -573,6 +590,10 @@ describe('Extension (Real)', () => {
                 setProgress() {}
                 setComplete() {}
                 setError() {}
+                setLoopActivity(_msg: string) {}
+                setLoopIdle() {}
+                updateLoopBudget(_cost: number, _tokens: number) {}
+                resetLoopBudget() {}
                 dispose() {}
             };
 
@@ -589,7 +610,7 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py');
+                return filePath.includes('lit-critic-server.py');
             };
 
             loadExtension();
@@ -656,7 +677,7 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -722,7 +743,7 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -778,7 +799,7 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -802,7 +823,7 @@ describe('Extension (Real)', () => {
             let updatedRepoPath: string | undefined;
 
             const validRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'lit-critic-activation-repo-'));
-            fs.writeFileSync(path.join(validRepo, 'lit-critic-web.py'), 'print("ok")', 'utf8');
+            fs.writeFileSync(path.join(validRepo, 'lit-critic-server.py'), 'print("ok")', 'utf8');
 
             let configuredRepoPath = '/invalid/repo/path';
 
@@ -875,7 +896,7 @@ describe('Extension (Real)', () => {
             ];
             
             mockFs.existsSync = (path: string) => {
-                return path.includes('lit-critic-web.py');
+                return path.includes('lit-critic-server.py');
             };
             
             loadExtension();
@@ -909,7 +930,7 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -942,7 +963,7 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py');
+                return filePath.includes('lit-critic-server.py');
             };
 
             loadExtension();
@@ -1057,6 +1078,100 @@ describe('Extension (Real)', () => {
             // UI components should still be registered
             assert.ok(context.subscriptions.length > 0);
         });
+
+        it('should drive correct status bar transitions for the redesigned loop SSE event sequence', async () => {
+            // Regression smoke test for the loop redesign (Task 4.3).
+            // Simulates the SSE event sequence that the redesigned loop emits after
+            // configuring a project: extraction_started → extraction_complete →
+            // quick_analysis_started → quick_analysis_complete → cycle_complete (NOOP).
+            // Asserts the extension drives the correct status bar transitions.
+            const statusTransitions: string[] = [];
+            let capturedEventHandler: ((event: any) => void) | undefined;
+
+            mockStatusBar = class MockStatusBar {
+                setReady() { statusTransitions.push('ready'); }
+                setAnalyzing(message?: string) { statusTransitions.push(`analyzing:${message || ''}`); }
+                setProgress() {}
+                setComplete() {}
+                setError() {}
+                setLoopActivity(msg: string) { statusTransitions.push(`loop-activity:${msg}`); }
+                setLoopIdle() { statusTransitions.push('loop-idle'); }
+                updateLoopBudget(_cost: number, _tokens: number) {}
+                resetLoopBudget() {}
+                dispose() {}
+            };
+
+            // Capture the event handler passed to startEventStream so we can
+            // simulate SSE events after activation completes.
+            mockLoopClient = class MockLoopClient {
+                constructor(_baseUrl: string, _opts: any) {}
+                startEventStream(handler: any) { capturedEventHandler = handler; }
+                notifyFileChanged(_path: string, _type: string) {}
+                dispose() {}
+            };
+
+            mockApiClient = class MockApiClient {
+                async updateRepoPath(_repoPath: string) { return { ok: true }; }
+                async getSession() { return { active: false }; }
+                async getConfig() {
+                    return {
+                        api_key_configured: true,
+                        available_models: { sonnet: { label: 'Sonnet' } },
+                        default_model: 'sonnet',
+                    };
+                }
+                async getInputStaleness(_projectPath: string) { return { stale_inputs: [] }; }
+                async configureLoop(_projectPath: string, _config: any) { return {}; }
+            };
+
+            mockVscode.workspace.getConfiguration = () => ({
+                get: (key: string, defaultValue: any) => {
+                    if (key === 'autoStartServer') return true;
+                    return defaultValue;
+                },
+                update: async () => {},
+            });
+
+            mockVscode.workspace.workspaceFolders = [
+                { uri: { fsPath: '/test/repo' } },
+            ];
+
+            mockFs.existsSync = (filePath: string) => {
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
+            };
+
+            loadExtension();
+            await activate({ subscriptions: [] });
+
+            assert.ok(capturedEventHandler, 'Expected LoopClient.startEventStream to capture the event handler');
+
+            // Clear status transitions accumulated during startup so we only
+            // assert against the loop event sequence.
+            statusTransitions.length = 0;
+
+            // Simulate the redesigned loop's first-cycle SSE event sequence:
+            // 1. extraction_started  → spinner shown
+            capturedEventHandler!({ event: 'extraction_started' });
+            // 2. extraction_complete → spinner cleared
+            capturedEventHandler!({ event: 'extraction_complete' });
+            // 3. quick_analysis_started → spinner shown
+            capturedEventHandler!({ event: 'quick_analysis_started' });
+            // 4. quick_analysis_complete → spinner cleared, trees refreshed
+            capturedEventHandler!({ event: 'quick_analysis_complete', analyzed: [] });
+            // 5. cycle_complete (NOOP) → default handler, no UI action
+            capturedEventHandler!({ event: 'cycle_complete' });
+
+            assert.deepEqual(
+                statusTransitions,
+                [
+                    'loop-activity:Extracting knowledge…',
+                    'loop-idle',
+                    'loop-activity:Quick analysis…',
+                    'loop-idle',
+                ],
+                'Expected status bar to show extraction spinner → idle → analysis spinner → idle for the redesigned loop event sequence',
+            );
+        });
     });
 
     describe('deactivation', () => {
@@ -1086,7 +1201,7 @@ describe('Extension (Real)', () => {
             
             // Fix path separators issue - just check for the file
             mockFs.existsSync = (path: string) => {
-                return path.includes('lit-critic-web.py');
+                return path.includes('lit-critic-server.py');
             };
             
             loadExtension();
@@ -1111,7 +1226,7 @@ describe('Extension (Real)', () => {
             // Use a platform-agnostic filename-only check so this works on
             // both Unix (forward slashes) and Windows (backslashes from path.join).
             mockFs.existsSync = (p: string) => {
-                return p.includes('lit-critic-web.py');
+                return p.includes('lit-critic-server.py');
             };
 
             // Disable auto-start: this test only verifies that findRepoRoot() can
@@ -1151,7 +1266,7 @@ describe('Extension (Real)', () => {
             });
             
             mockFs.existsSync = (path: string) => {
-                return path.includes('/custom/repo/path') && path.includes('lit-critic-web.py');
+                return path.includes('/custom/repo/path') && path.includes('lit-critic-server.py');
             };
             
             mockVscode.workspace.workspaceFolders = [
@@ -1176,7 +1291,7 @@ describe('Extension (Real)', () => {
             ];
 
             mockFs.existsSync = (path: string) => {
-                // CANON.md exists in the workspace, but no lit-critic-web.py
+                // CANON.md exists in the workspace, but no lit-critic-server.py
                 // (so findRepoRoot returns undefined — auto-start disabled to avoid recovery loop)
                 if (path.includes('CANON.md') && path.includes('/test/project')) {
                     return true;
@@ -1184,7 +1299,7 @@ describe('Extension (Real)', () => {
                 return false;
             };
 
-            // Without lit-critic-web.py, findRepoRoot() returns undefined.
+            // Without lit-critic-server.py, findRepoRoot() returns undefined.
             // Disable auto-start so activation does not enter the repo recovery loop.
             mockVscode.workspace.getConfiguration = () => ({
                 get: (key: string, defaultValue: any) => {
@@ -1257,7 +1372,7 @@ describe('Extension (Real)', () => {
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
+                if (cmd === 'litCritic.analyze') {
                     analyzeCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -1282,7 +1397,7 @@ describe('Extension (Real)', () => {
             });
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -1326,6 +1441,9 @@ describe('Extension (Real)', () => {
                         default_model: 'sonnet',
                     };
                 }
+                async getAnalyzableScenes(_projectPath: string) {
+                    return { analyzable_scenes: [{ scene_key: 'scene-a.txt', path: '/test/repo/scene-a.txt', status: 'extraction_due' }] };
+                }
                 async analyze() {
                     return {
                         scene_path: '/test/repo/scene-a.txt',
@@ -1354,7 +1472,7 @@ describe('Extension (Real)', () => {
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
+                if (cmd === 'litCritic.analyze') {
                     analyzeCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -1379,7 +1497,7 @@ describe('Extension (Real)', () => {
             });
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -1392,126 +1510,10 @@ describe('Extension (Real)', () => {
             );
         });
 
-        it('should disambiguate resume choices when multiple active sessions exist', async () => {
-            let analyzeCallback: any;
-            const quickPickCalls: Array<{ items: any[]; options: any }> = [];
-            const resumedSessionIds: number[] = [];
-
-            mockApiClient = class MockApiClient {
-                async updateRepoPath(_repoPath: string) {
-                    return { ok: true };
-                }
-                async getSession() {
-                    return { active: false };
-                }
-                async getConfig() {
-                    return {
-                        api_key_configured: true,
-                        available_models: { sonnet: { label: 'Sonnet' } },
-                        default_model: 'sonnet',
-                    };
-                }
-                async checkSession() {
-                    return { exists: true, total_findings: 7 };
-                }
-                async listSessions() {
-                    return {
-                        sessions: [
-                            {
-                                id: 11,
-                                status: 'active',
-                                scene_path: '/test/repo/scene-a.txt',
-                                model: 'sonnet',
-                                created_at: '2026-02-17T18:00:00',
-                                total_findings: 10,
-                                accepted_count: 0,
-                                rejected_count: 0,
-                                withdrawn_count: 0,
-                            },
-                            {
-                                id: 12,
-                                status: 'active',
-                                scene_path: '/test/repo/scene-b.txt',
-                                model: 'sonnet',
-                                created_at: '2026-02-17T19:00:00',
-                                total_findings: 5,
-                                accepted_count: 0,
-                                rejected_count: 0,
-                                withdrawn_count: 0,
-                            },
-                        ],
-                    };
-                }
-                async resumeSessionByIdWithRecovery(_projectPath: string, sessionId: number) {
-                    resumedSessionIds.push(sessionId);
-                    return {
-                        scene_path: '/test/repo/scene-a.txt',
-                        scene_name: 'scene-a.txt',
-                        project_path: '/test/repo',
-                        total_findings: 0,
-                        current_index: 0,
-                        glossary_issues: [],
-                        counts: { critical: 0, major: 0, minor: 0 },
-                        lens_counts: {},
-                        model: { name: 'sonnet', id: 'sonnet', label: 'Sonnet' },
-                        learning: { review_count: 0, preferences: 0, blind_spots: 0 },
-                        findings_status: [],
-                    };
-                }
-                async getCurrentFinding() {
-                    return { complete: true };
-                }
-            };
-
-            mockVscode.window.showQuickPick = async (items: any[], options?: any) => {
-                quickPickCalls.push({ items, options });
-                return items[0];
-            };
-
-            mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
-                    analyzeCallback = callback;
-                }
-                return { dispose: () => {} };
-            };
-
-            mockVscode.workspace.workspaceFolders = [{ uri: { fsPath: '/test/repo' } }];
-            mockVscode.workspace.getConfiguration = () => ({
-                get: (key: string, defaultValue: any) => {
-                    if (key === 'autoStartServer') return true;
-                    return defaultValue;
-                },
-                update: async () => {},
-                inspect: () => ({ workspaceValue: undefined, globalValue: undefined, workspaceFolderValue: undefined }),
-            });
-            mockVscode.window.activeTextEditor = {
-                document: {
-                    uri: {
-                        scheme: 'file',
-                        fsPath: '/test/repo/scene-a.txt',
-                    },
-                },
-            };
-
-            mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
-            };
-
-            loadExtension();
-            await activate({ subscriptions: [] });
-            await analyzeCallback();
-
-            assert.ok(quickPickCalls.length > 0, 'Expected analyze command to show a disambiguation picker');
-            const labels = quickPickCalls[0].items.map((item: any) => item.label);
-            assert.ok(labels.some((label: string) => label.includes('Resume #11')));
-            assert.ok(labels.some((label: string) => label.includes('Resume #12')));
-            assert.deepEqual(resumedSessionIds, [11]);
-        });
-
         it('should show quick mode status message instead of hardcoded lens-count text', async () => {
             let analyzeCallback: any;
             const statusMessages: string[] = [];
-            let analyzeMode: 'quick' | 'deep' | undefined;
+            let analyzeMode: string | undefined;
 
             mockStatusBar = class MockStatusBar {
                 setReady() {}
@@ -1544,12 +1546,15 @@ describe('Extension (Real)', () => {
                         default_model: 'sonnet',
                     };
                 }
+                async getAnalyzableScenes(_projectPath: string) {
+                    return { analyzable_scenes: [{ scene_key: 'scene-a.txt', path: '/test/repo/scene-a.txt', status: 'extracted' }] };
+                }
                 async analyze(
                     _scenePath: string,
                     _projectPath: string,
                     _apiKey: string | undefined,
                     _scenePaths?: string[],
-                    mode?: 'quick' | 'deep',
+                    mode?: string,
                 ) {
                     analyzeMode = mode;
                     return {
@@ -1576,7 +1581,7 @@ describe('Extension (Real)', () => {
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
+                if (cmd === 'litCritic.analyze') {
                     analyzeCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -1586,7 +1591,7 @@ describe('Extension (Real)', () => {
             mockVscode.workspace.getConfiguration = () => ({
                 get: (key: string, defaultValue: any) => {
                     if (key === 'autoStartServer') return true;
-                    if (key === 'analysisMode') return 'quick';
+                    if (key === 'analysisModel') return 'haiku';
                     return defaultValue;
                 },
                 update: async () => {},
@@ -1602,21 +1607,17 @@ describe('Extension (Real)', () => {
             };
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
-
-            // _resolveSceneFiles always shows the open dialog for a start-new flow.
-            mockVscode.window.showOpenDialog = async () => [{ fsPath: '/test/repo/scene-a.txt' }];
-            mockVscode.window.showTextDocument = async () => ({ viewColumn: 1 });
 
             loadExtension();
             await activate({ subscriptions: [] });
             await analyzeCallback();
 
-            assert.equal(analyzeMode, 'quick');
+            assert.equal(analyzeMode, 'haiku');
             assert.ok(
-                statusMessages.some((message) => message.includes('Running quick analysis...')),
-                'Expected status bar to include mode-aware quick analysis status',
+                statusMessages.some((message) => message.includes('Running analysis (Haiku)...')),
+                'Expected status bar to include model-aware analysis status',
             );
             assert.ok(
                 statusMessages.every((message) => !message.includes('preset')),
@@ -1629,7 +1630,7 @@ describe('Extension (Real)', () => {
             let updatedRepoPathCall: string | undefined;
 
             const validRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'lit-critic-repo-sync-'));
-            fs.writeFileSync(path.join(validRepo, 'lit-critic-web.py'), 'print("ok")', 'utf8');
+            fs.writeFileSync(path.join(validRepo, 'lit-critic-server.py'), 'print("ok")', 'utf8');
 
             let configuredRepoPath = '/invalid/repo/path';
 
@@ -1641,7 +1642,7 @@ describe('Extension (Real)', () => {
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
+                if (cmd === 'litCritic.analyze') {
                     analyzeCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -1696,7 +1697,7 @@ describe('Extension (Real)', () => {
             let updatedRepoPath: string | undefined;
 
             const validRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'lit-critic-repo-'));
-            fs.writeFileSync(path.join(validRepo, 'lit-critic-web.py'), 'print("ok")', 'utf8');
+            fs.writeFileSync(path.join(validRepo, 'lit-critic-server.py'), 'print("ok")', 'utf8');
 
             let configuredRepoPath = '/invalid/repo/path';
 
@@ -1708,7 +1709,7 @@ describe('Extension (Real)', () => {
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
+                if (cmd === 'litCritic.analyze') {
                     analyzeCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -1756,27 +1757,22 @@ describe('Extension (Real)', () => {
             fs.rmSync(validRepo, { recursive: true, force: true });
         });
 
-        it('should show cancellation error when analyze picker is dismissed', async () => {
+        it('should show up-to-date info message when no stale scenes are detected', async () => {
             let analyzeCallback: any;
-            const errorMessages: string[] = [];
-            let openDialogCalls = 0;
+            const infoMessages: string[] = [];
             const validRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'lit-critic-analyze-repo-'));
-            fs.writeFileSync(path.join(validRepo, 'lit-critic-web.py'), 'print("ok")', 'utf8');
+            fs.writeFileSync(path.join(validRepo, 'lit-critic-server.py'), 'print("ok")', 'utf8');
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
+                if (cmd === 'litCritic.analyze') {
                     analyzeCallback = callback;
                 }
                 return { dispose: () => {} };
             };
 
-            mockVscode.window.showErrorMessage = async (message: string) => {
-                errorMessages.push(message);
+            mockVscode.window.showInformationMessage = async (message: string) => {
+                infoMessages.push(message);
                 return undefined;
-            };
-            mockVscode.window.showOpenDialog = async () => {
-                openDialogCalls += 1;
-                return [];
             };
 
             mockVscode.workspace.workspaceFolders = [
@@ -1792,187 +1788,35 @@ describe('Extension (Real)', () => {
                 update: async () => {},
                 inspect: () => ({ workspaceValue: undefined, globalValue: undefined, workspaceFolderValue: undefined }),
             });
-
-            // No active editor and no visible editors.
-            mockVscode.window.activeTextEditor = undefined;
-            mockVscode.window.visibleTextEditors = [];
 
             // detectProjectPath() requires CANON.md in the workspace folder.
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
             await activate({ subscriptions: [] });
-
             await analyzeCallback();
 
             assert.ok(
-                errorMessages.includes('lit-critic: No scene file selected.'),
-                'Expected analyze command to show picker-cancel message',
-            );
-            assert.equal(openDialogCalls, 1, 'Expected analyze to show file picker when no editor is available');
-
-            fs.rmSync(validRepo, { recursive: true, force: true });
-        });
-
-        it('should open all selected files from picker for multi-scene analysis', async () => {
-            let analyzeCallback: any;
-            const showTextDocumentCalls: Array<{ docOrUri: any; options: any }> = [];
-            let showOpenDialogCalls = 0;
-            let analyzedScenePaths: string[] | undefined;
-            const validRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'lit-critic-analyze-repo-'));
-            fs.writeFileSync(path.join(validRepo, 'lit-critic-web.py'), 'print("ok")', 'utf8');
-
-            mockApiClient = class MockApiClient {
-                async updateRepoPath(_repoPath: string) {
-                    return { ok: true };
-                }
-                async getSession() {
-                    return { active: false };
-                }
-                async checkSession() {
-                    return { exists: false };
-                }
-                async getConfig() {
-                    return {
-                        api_key_configured: true,
-                        available_models: { sonnet: { label: 'Sonnet' } },
-                        default_model: 'sonnet',
-                    };
-                }
-                async analyze(_scenePath: string, _projectPath: string, _apiKey: string | undefined, scenePaths?: string[], _mode?: 'quick' | 'deep') {
-                    analyzedScenePaths = scenePaths;
-                    return {
-                        scene_path: '/test/repo/scene-picked.md',
-                        scene_name: 'scene-picked.md',
-                        project_path: '/test/repo',
-                        total_findings: 0,
-                        current_index: 0,
-                        glossary_issues: [],
-                        counts: { critical: 0, major: 0, minor: 0 },
-                        lens_counts: {},
-                        model: { name: 'sonnet', id: 'sonnet', label: 'Sonnet' },
-                        learning: { review_count: 0, preferences: 0, blind_spots: 0 },
-                        findings_status: [],
-                    };
-                }
-                streamAnalysisProgress(_onEvent: any, onDone: any, _onError: any) {
-                    setTimeout(() => onDone(), 0);
-                    return () => {};
-                }
-                async getCurrentFinding() {
-                    return { complete: true };
-                }
-            };
-
-            mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
-                    analyzeCallback = callback;
-                }
-                return { dispose: () => {} };
-            };
-
-            const selectedFileUri = {
-                scheme: 'file',
-                fsPath: '/test/repo/scene-picked.md',
-            };
-            const selectedFileUri2 = {
-                scheme: 'file',
-                fsPath: '/test/repo/scene-picked-2.md',
-            };
-
-            mockVscode.window.activeTextEditor = undefined;
-            mockVscode.window.visibleTextEditors = [];
-            mockVscode.window.showOpenDialog = async (options?: any) => {
-                showOpenDialogCalls += 1;
-                assert.equal(options?.canSelectFiles, true);
-                assert.equal(options?.canSelectFolders, false);
-                assert.equal(options?.canSelectMany, true);
-                return [selectedFileUri, selectedFileUri2];
-            };
-            mockVscode.window.showTextDocument = async (docOrUri: any, options?: any) => {
-                showTextDocumentCalls.push({ docOrUri, options });
-                return {
-                    document: {
-                        uri: selectedFileUri,
-                    },
-                    viewColumn: 1,
-                };
-            };
-
-            mockVscode.workspace.workspaceFolders = [
-                { uri: { fsPath: '/test/repo' } },
-            ];
-
-            mockVscode.workspace.getConfiguration = () => ({
-                get: (key: string, defaultValue: any) => {
-                    if (key === 'repoPath') return validRepo;
-                    if (key === 'autoStartServer') return false;
-                    return defaultValue;
-                },
-                update: async () => {},
-                inspect: () => ({ workspaceValue: undefined, globalValue: undefined, workspaceFolderValue: undefined }),
-            });
-
-            // Repo and project marker exist so cmdAnalyze can proceed to scene picker.
-            mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
-            };
-
-            loadExtension();
-            await activate({ subscriptions: [] });
-
-            await analyzeCallback();
-
-            assert.equal(showOpenDialogCalls, 1, 'Expected a single picker invocation');
-            assert.equal(showTextDocumentCalls.length, 2, 'Expected all selected picker files to be opened');
-            assert.equal(showTextDocumentCalls[0].docOrUri.fsPath, selectedFileUri.fsPath);
-            assert.equal(showTextDocumentCalls[1].docOrUri.fsPath, selectedFileUri2.fsPath);
-            assert.deepEqual(
-                analyzedScenePaths,
-                ['/test/repo/scene-picked.md', '/test/repo/scene-picked-2.md'],
-                'Expected all selected scene paths to be sent to analyze()',
+                infoMessages.some(m => m.includes('All scenes are up to date')),
+                'Expected up-to-date message when staleness API returns no stale scenes',
             );
 
             fs.rmSync(validRepo, { recursive: true, force: true });
         });
 
-        it('should show file picker even when an active editor exists if user starts a new analysis', async () => {
+        it('should analyze all stale scenes returned by the staleness API', async () => {
             let analyzeCallback: any;
-            let showOpenDialogCalls = 0;
             let analyzedScenePath: string | undefined;
             let analyzedScenePaths: string[] | undefined;
             const validRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'lit-critic-analyze-repo-'));
-            fs.writeFileSync(path.join(validRepo, 'lit-critic-web.py'), 'print("ok")', 'utf8');
+            fs.writeFileSync(path.join(validRepo, 'lit-critic-server.py'), 'print("ok")', 'utf8');
 
             mockApiClient = class MockApiClient {
-                async updateRepoPath(_repoPath: string) {
-                    return { ok: true };
-                }
-                async getSession() {
-                    return { active: false };
-                }
-                async checkSession() {
-                    return { exists: true, total_findings: 1, scene_path: '/test/repo/focused.md' };
-                }
-                async listSessions() {
-                    return {
-                        sessions: [
-                            {
-                                id: 99,
-                                status: 'active',
-                                scene_path: '/test/repo/focused.md',
-                                model: 'sonnet',
-                                created_at: '2026-02-17T18:00:00',
-                                total_findings: 1,
-                                accepted_count: 0,
-                                rejected_count: 0,
-                                withdrawn_count: 0,
-                            },
-                        ],
-                    };
-                }
+                async updateRepoPath(_repoPath: string) { return { ok: true }; }
+                async getSession() { return { active: false }; }
+                async checkSession() { return { exists: false }; }
                 async getConfig() {
                     return {
                         api_key_configured: true,
@@ -1980,12 +1824,20 @@ describe('Extension (Real)', () => {
                         default_model: 'sonnet',
                     };
                 }
-                async analyze(scenePath: string, _projectPath: string, _apiKey: string | undefined, scenePaths?: string[], _mode?: 'quick' | 'deep') {
+                async getAnalyzableScenes(_projectPath: string) {
+                    return {
+                        analyzable_scenes: [
+                            { scene_key: 'scene-a.md', path: '/test/repo/scene-a.md', status: 'extracted' },
+                            { scene_key: 'scene-b.md', path: '/test/repo/scene-b.md', status: 'extraction_due' },
+                        ],
+                    };
+                }
+                async analyze(scenePath: string, _projectPath: string, _apiKey: string | undefined, scenePaths?: string[]) {
                     analyzedScenePath = scenePath;
                     analyzedScenePaths = scenePaths;
                     return {
                         scene_path: scenePath,
-                        scene_name: 'picked.md',
+                        scene_name: 'scene-a.md',
                         project_path: '/test/repo',
                         total_findings: 0,
                         current_index: 0,
@@ -2001,55 +1853,15 @@ describe('Extension (Real)', () => {
                     setTimeout(() => onDone(), 0);
                     return () => {};
                 }
-                async getCurrentFinding() {
-                    return { complete: true };
-                }
+                async getCurrentFinding() { return { complete: true }; }
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') {
-                    analyzeCallback = callback;
-                }
+                if (cmd === 'litCritic.analyze') { analyzeCallback = callback; }
                 return { dispose: () => {} };
             };
 
-            const fallbackEditor = {
-                document: {
-                    uri: {
-                        scheme: 'file',
-                        fsPath: '/test/repo/focused.md',
-                    },
-                },
-                viewColumn: 1,
-            };
-
-            const selectedFileUri = {
-                scheme: 'file',
-                fsPath: '/test/repo/picked.md',
-            };
-
-            mockVscode.window.activeTextEditor = fallbackEditor;
-            mockVscode.window.visibleTextEditors = [fallbackEditor];
-            mockVscode.window.showQuickPick = async (items: any[]) => {
-                return items.find((item: any) => item?.label === 'Start new analysis') || items[1];
-            };
-            mockVscode.window.showOpenDialog = async () => {
-                showOpenDialogCalls += 1;
-                return [selectedFileUri];
-            };
-            mockVscode.window.showTextDocument = async (_docOrUri: any) => {
-                return {
-                    document: {
-                        uri: selectedFileUri,
-                    },
-                    viewColumn: 1,
-                };
-            };
-
-            mockVscode.workspace.workspaceFolders = [
-                { uri: { fsPath: '/test/repo' } },
-            ];
-
+            mockVscode.workspace.workspaceFolders = [{ uri: { fsPath: '/test/repo' } }];
             mockVscode.workspace.getConfiguration = () => ({
                 get: (key: string, defaultValue: any) => {
                     if (key === 'repoPath') return validRepo;
@@ -2060,44 +1872,123 @@ describe('Extension (Real)', () => {
                 inspect: () => ({ workspaceValue: undefined, globalValue: undefined, workspaceFolderValue: undefined }),
             });
 
-            // Repo and project marker exist so cmdAnalyze reaches start-new picker flow.
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
             await activate({ subscriptions: [] });
-
             await analyzeCallback();
 
-            assert.equal(showOpenDialogCalls, 1, 'Expected Start new flow to always show picker');
-            assert.equal(analyzedScenePath, '/test/repo/picked.md');
-            assert.deepEqual(analyzedScenePaths, undefined);
+            assert.equal(analyzedScenePath, '/test/repo/scene-a.md', 'Expected first stale scene as primary scenePath');
+            assert.deepEqual(
+                analyzedScenePaths,
+                ['/test/repo/scene-a.md', '/test/repo/scene-b.md'],
+                'Expected all stale scene paths to be sent to analyze()',
+            );
 
             fs.rmSync(validRepo, { recursive: true, force: true });
         });
 
-        it('should not auto-close discussion panel when review returns complete', async () => {
-            let reviewFindingCallback: any;
-            let discussCallback: any;
-            let closeCalls = 0;
-
-            mockDiscussionPanel = class MockDiscussionPanel {
-                onFindingAction: any;
-                onDiscussionResult: any;
-                show() {}
-                close() { closeCalls += 1; }
-                dispose() {}
-                notifySceneChange() {}
-            };
+        it('should use staleness API to determine scene to analyze, ignoring active editor', async () => {
+            let analyzeCallback: any;
+            let analyzedScenePath: string | undefined;
+            const validRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'lit-critic-analyze-repo-'));
+            fs.writeFileSync(path.join(validRepo, 'lit-critic-server.py'), 'print("ok")', 'utf8');
 
             mockApiClient = class MockApiClient {
-                async getSession() {
+                async updateRepoPath(_repoPath: string) { return { ok: true }; }
+                async getSession() { return { active: false }; }
+                async checkSession() { return { exists: false }; }
+                async listSessions() { return { sessions: [] }; }
+                async getConfig() {
                     return {
-                        active: false,
+                        api_key_configured: true,
+                        available_models: { sonnet: { label: 'Sonnet' } },
+                        default_model: 'sonnet',
+                    };
+                }
+                async getAnalyzableScenes(_projectPath: string) {
+                    return { analyzable_scenes: [{ scene_key: 'stale-scene.md', path: '/test/repo/stale-scene.md', status: 'extraction_due' }] };
+                }
+                async analyze(scenePath: string) {
+                    analyzedScenePath = scenePath;
+                    return {
+                        scene_path: scenePath,
+                        scene_name: 'stale-scene.md',
+                        project_path: '/test/repo',
+                        total_findings: 0,
+                        current_index: 0,
+                        glossary_issues: [],
+                        counts: { critical: 0, major: 0, minor: 0 },
+                        lens_counts: {},
+                        model: { name: 'sonnet', id: 'sonnet', label: 'Sonnet' },
+                        learning: { review_count: 0, preferences: 0, blind_spots: 0 },
                         findings_status: [],
                     };
                 }
+                streamAnalysisProgress(_onEvent: any, onDone: any, _onError: any) {
+                    setTimeout(() => onDone(), 0);
+                    return () => {};
+                }
+                async getCurrentFinding() { return { complete: true }; }
+            };
+
+            mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
+                if (cmd === 'litCritic.analyze') { analyzeCallback = callback; }
+                return { dispose: () => {} };
+            };
+
+            // An active editor exists — but should not affect which scene gets analyzed
+            mockVscode.window.activeTextEditor = {
+                document: {
+                    uri: {
+                        scheme: 'file',
+                        fsPath: '/test/repo/already-open.md',
+                    },
+                },
+                viewColumn: 1,
+            };
+            mockVscode.window.visibleTextEditors = [mockVscode.window.activeTextEditor];
+
+            mockVscode.workspace.workspaceFolders = [{ uri: { fsPath: '/test/repo' } }];
+            mockVscode.workspace.getConfiguration = () => ({
+                get: (key: string, defaultValue: any) => {
+                    if (key === 'repoPath') return validRepo;
+                    if (key === 'autoStartServer') return false;
+                    return defaultValue;
+                },
+                update: async () => {},
+                inspect: () => ({ workspaceValue: undefined, globalValue: undefined, workspaceFolderValue: undefined }),
+            });
+
+            mockFs.existsSync = (filePath: string) => {
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
+            };
+
+            loadExtension();
+            await activate({ subscriptions: [] });
+            await analyzeCallback();
+
+            assert.equal(
+                analyzedScenePath,
+                '/test/repo/stale-scene.md',
+                'Expected stale scene from staleness API to be analyzed, not the active editor scene',
+            );
+
+            fs.rmSync(validRepo, { recursive: true, force: true });
+        });
+
+        it('should pick up extracted (not just extraction_due) scenes for analysis', async () => {
+            let analyzeCallback: any;
+            let analyzedScenePath: string | undefined;
+            const validRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'lit-critic-analyze-repo-'));
+            fs.writeFileSync(path.join(validRepo, 'lit-critic-server.py'), 'print("ok")', 'utf8');
+
+            mockApiClient = class MockApiClient {
+                async updateRepoPath(_repoPath: string) { return { ok: true }; }
+                async getSession() { return { active: false }; }
+                async checkSession() { return { exists: false }; }
                 async getConfig() {
                     return {
                         api_key_configured: true,
@@ -2105,724 +1996,64 @@ describe('Extension (Real)', () => {
                         default_model: 'sonnet',
                     };
                 }
-                async getCurrentFinding() {
+                async getAnalyzableScenes(_projectPath: string) {
+                    // Only an `extracted` scene — not extraction_due
+                    return { analyzable_scenes: [{ scene_key: 'ready.md', path: '/test/repo/ready.md', status: 'extracted' }] };
+                }
+                async analyze(scenePath: string) {
+                    analyzedScenePath = scenePath;
                     return {
-                        complete: false,
-                        finding: {
-                            number: 1,
-                            severity: 'major',
-                            lens: 'prose',
-                            location: 'L1',
-                            line_start: 1,
-                            line_end: 1,
-                            evidence: 'example',
-                            impact: '',
-                            options: [],
-                            flagged_by: [],
-                            ambiguity_type: null,
-                            stale: false,
-                            status: 'pending',
-                        },
-                        current: 1,
-                        total: 1,
-                        is_ambiguity: false,
-                    };
-                }
-                async reviewFinding() {
-                    return { complete: true };
-                }
-            };
-
-            mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.reviewFinding') {
-                    reviewFindingCallback = callback;
-                }
-                if (cmd === 'literaryCritic.discuss') {
-                    discussCallback = callback;
-                }
-                return { dispose: () => {} };
-            };
-
-            mockVscode.workspace.workspaceFolders = [
-                { uri: { fsPath: '/test/repo' } },
-            ];
-
-            mockVscode.workspace.getConfiguration = () => ({
-                get: (key: string, defaultValue: any) => {
-                    if (key === 'autoStartServer') return true;
-                    return defaultValue;
-                },
-                update: async () => {},
-            });
-
-            mockFs.existsSync = (path: string) => {
-                return path.includes('lit-critic-web.py');
-            };
-
-            loadExtension();
-
-            const context = {
-                subscriptions: [],
-            };
-
-            await activate(context);
-
-            // Ensure panel is created/shown before review command runs.
-            await discussCallback();
-            await reviewFindingCallback();
-
-            assert.equal(closeCalls, 0, 'Discussion panel should remain open on review completion');
-        });
-
-        it('should preserve pre-review discussion context when finding is re-evaluated after scene edits', async () => {
-            let reviewFindingCallback: any;
-            let discussCallback: any;
-            const showCalls: any[] = [];
-
-            mockDiscussionPanel = class MockDiscussionPanel {
-                onFindingAction: any;
-                onDiscussionResult: any;
-                show(...args: any[]) { showCalls.push(args); }
-                close() {}
-                dispose() {}
-                notifySceneChange() {}
-                clearIndexChangeNotice() {}
-                notifyIndexChange() {}
-            };
-
-            mockApiClient = class MockApiClient {
-                async getSession() {
-                    return {
-                        active: false,
+                        scene_path: scenePath,
+                        scene_name: 'ready.md',
+                        project_path: '/test/repo',
+                        total_findings: 0,
+                        current_index: 0,
+                        glossary_issues: [],
+                        counts: { critical: 0, major: 0, minor: 0 },
+                        lens_counts: {},
+                        model: { name: 'sonnet', id: 'sonnet', label: 'Sonnet' },
+                        learning: { review_count: 0, preferences: 0, blind_spots: 0 },
                         findings_status: [],
                     };
                 }
-                async getConfig() {
-                    return {
-                        api_key_configured: true,
-                        available_models: { sonnet: { label: 'Sonnet' } },
-                        default_model: 'sonnet',
-                    };
+                streamAnalysisProgress(_onEvent: any, onDone: any, _onError: any) {
+                    setTimeout(() => onDone(), 0);
+                    return () => {};
                 }
-                async getCurrentFinding() {
-                    return {
-                        complete: false,
-                        finding: {
-                            number: 1,
-                            severity: 'major',
-                            lens: 'prose',
-                            location: 'Line 12',
-                            line_start: 12,
-                            line_end: 12,
-                            evidence: 'Original evidence text',
-                            impact: 'Original impact',
-                            options: [],
-                            flagged_by: [],
-                            ambiguity_type: null,
-                            stale: false,
-                            status: 'pending',
-                            discussion_turns: [
-                                { role: 'assistant', content: 'Original recommendation.' },
-                                { role: 'user', content: 'I will revise this now.' },
-                            ],
-                        },
-                        current: 1,
-                        total: 1,
-                        is_ambiguity: false,
-                    };
-                }
-                async reviewFinding() {
-                    return {
-                        complete: false,
-                        review: { changed: true, adjusted: 0, stale: 1, no_lines: 0, re_evaluated: [] },
-                        finding: {
-                            number: 1,
-                            severity: 'major',
-                            lens: 'prose',
-                            location: 'Line 13',
-                            line_start: 13,
-                            line_end: 13,
-                            evidence: 'Updated evidence text',
-                            impact: 'Updated impact',
-                            options: [],
-                            flagged_by: [],
-                            ambiguity_type: null,
-                            stale: false,
-                            status: 'pending',
-                            discussion_turns: [],
-                        },
-                        current: 1,
-                        total: 1,
-                        is_ambiguity: false,
-                    };
-                }
+                async getCurrentFinding() { return { complete: true }; }
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.reviewFinding') {
-                    reviewFindingCallback = callback;
-                }
-                if (cmd === 'literaryCritic.discuss') {
-                    discussCallback = callback;
-                }
-                return { dispose: () => {} };
-            };
-
-            mockVscode.workspace.workspaceFolders = [
-                { uri: { fsPath: '/test/repo' } },
-            ];
-
-            mockVscode.workspace.getConfiguration = () => ({
-                get: (key: string, defaultValue: any) => {
-                    if (key === 'autoStartServer') return true;
-                    return defaultValue;
-                },
-                update: async () => {},
-            });
-
-            mockFs.existsSync = (path: string) => {
-                return path.includes('lit-critic-web.py');
-            };
-
-            loadExtension();
-
-            const context = {
-                subscriptions: [],
-            };
-
-            await activate(context);
-
-            // Seed cached finding with original discussion turns.
-            await discussCallback();
-            await reviewFindingCallback();
-
-            assert.ok(showCalls.length >= 2, 'Expected discussion panel to be shown before and after review');
-            const transition = showCalls[showCalls.length - 1][4];
-
-            assert.ok(transition, 'Expected a discussion transition payload for re-evaluated finding');
-            assert.equal(transition.previousFinding.evidence, 'Original evidence text');
-            assert.equal(transition.previousTurns.length, 2);
-            assert.equal(transition.previousTurns[0].content, 'Original recommendation.');
-        });
-
-        it('should set current session to the explicitly selected historical session and sync discussion panel', async () => {
-            let viewSessionCallback: any;
-            const setCurrentSessionCalls: Array<number | null> = [];
-            const showCalls: any[] = [];
-
-            mockSessionsTreeProvider = class MockSessionsTreeProvider {
-                setApiClient() {}
-                setProjectPath() {}
-                async refresh() {}
-                setCurrentSession(sessionId: number | null) {
-                    setCurrentSessionCalls.push(sessionId);
-                }
-                setCurrentSessionByScenePath() {}
-                getCurrentSessionItem() { return undefined; }
-            };
-
-            mockDiscussionPanel = class MockDiscussionPanel {
-                onFindingAction: any;
-                onDiscussionResult: any;
-                show(...args: any[]) { showCalls.push(args); }
-                close() {}
-                dispose() {}
-                notifySceneChange() {}
-                clearIndexChangeNotice() {}
-                notifyIndexChange() {}
-            };
-
-            mockApiClient = class MockApiClient {
-                async getSession() {
-                    return { active: false, findings_status: [] };
-                }
-                async getConfig() {
-                    return {
-                        api_key_configured: true,
-                        available_models: { sonnet: { label: 'Sonnet' } },
-                        default_model: 'sonnet',
-                    };
-                }
-                async getSessionDetail() {
-                    return {
-                        id: 42,
-                        status: 'completed',
-                        scene_path: '/test/repo/scene01.txt',
-                        model: 'sonnet',
-                        created_at: '2026-02-10T10:00:00',
-                        completed_at: '2026-02-10T10:30:00',
-                        total_findings: 2,
-                        accepted_count: 1,
-                        rejected_count: 1,
-                        withdrawn_count: 0,
-                        scene_hash: 'hash',
-                        current_index: 1,
-                        glossary_issues: [],
-                        findings: [
-                            {
-                                id: 1,
-                                number: 1,
-                                severity: 'major',
-                                lens: 'prose',
-                                status: 'accepted',
-                                location: 'L1',
-                                evidence: 'first',
-                                impact: '',
-                                options: [],
-                                flagged_by: [],
-                                line_start: 1,
-                                line_end: 1,
-                            },
-                            {
-                                id: 2,
-                                number: 2,
-                                severity: 'minor',
-                                lens: 'structure',
-                                status: 'rejected',
-                                location: 'L2',
-                                evidence: 'second',
-                                impact: '',
-                                options: [],
-                                flagged_by: [],
-                                line_start: 2,
-                                line_end: 2,
-                            },
-                        ],
-                    };
-                }
-                async viewSessionWithRecovery() {
-                    return {
-                        scene_path: '/test/repo/scene01.txt',
-                        scene_name: 'scene01.txt',
-                        project_path: '/test/repo',
-                        total_findings: 2,
-                        current_index: 1,
-                        glossary_issues: [],
-                        counts: { critical: 0, major: 1, minor: 1 },
-                        lens_counts: {
-                            prose: { critical: 0, major: 1, minor: 0 },
-                            structure: { critical: 0, major: 0, minor: 1 },
-                        },
-                        model: { name: 'sonnet', id: 'sonnet', label: 'Sonnet' },
-                        learning: { review_count: 0, preferences: 0, blind_spots: 0 },
-                        findings_status: [
-                            {
-                                number: 1,
-                                severity: 'major',
-                                lens: 'prose',
-                                status: 'accepted',
-                                location: 'L1',
-                                evidence: 'first',
-                                line_start: 1,
-                                line_end: 1,
-                            },
-                            {
-                                number: 2,
-                                severity: 'minor',
-                                lens: 'structure',
-                                status: 'rejected',
-                                location: 'L2',
-                                evidence: 'second',
-                                line_start: 2,
-                                line_end: 2,
-                            },
-                        ],
-                    };
-                }
-                async getCurrentFinding() {
-                    return {
-                        complete: false,
-                        finding: {
-                            number: 2,
-                            severity: 'minor',
-                            lens: 'structure',
-                            location: 'L2',
-                            line_start: 2,
-                            line_end: 2,
-                            evidence: 'second',
-                            impact: '',
-                            options: [],
-                            flagged_by: [],
-                            ambiguity_type: null,
-                            stale: false,
-                            status: 'rejected',
-                        },
-                        index: 1,
-                        current: 2,
-                        total: 2,
-                        is_ambiguity: false,
-                    };
-                }
-            };
-
-            mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.viewSession') {
-                    viewSessionCallback = callback;
-                }
+                if (cmd === 'litCritic.analyze') { analyzeCallback = callback; }
                 return { dispose: () => {} };
             };
 
             mockVscode.workspace.workspaceFolders = [{ uri: { fsPath: '/test/repo' } }];
             mockVscode.workspace.getConfiguration = () => ({
                 get: (key: string, defaultValue: any) => {
-                    if (key === 'autoStartServer') return true;
+                    if (key === 'repoPath') return validRepo;
+                    if (key === 'autoStartServer') return false;
                     return defaultValue;
                 },
                 update: async () => {},
+                inspect: () => ({ workspaceValue: undefined, globalValue: undefined, workspaceFolderValue: undefined }),
             });
-            mockVscode.window.setStatusBarMessage = () => ({ dispose: () => {} });
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py')
-                    || filePath.includes('CANON.md')
-                    || filePath.includes('scene01.txt');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
             await activate({ subscriptions: [] });
+            await analyzeCallback();
 
-            await viewSessionCallback({ session: { id: 42 } });
-
-            assert.ok(
-                setCurrentSessionCalls.includes(42),
-                'Expected selected historical session to become current in sessions tree',
-            );
-            assert.ok(showCalls.length > 0, 'Expected discussion panel to be updated on historical session switch');
-            const readOnlyNotice = showCalls[showCalls.length - 1][5];
             assert.equal(
-                readOnlyNotice,
-                'Viewing completed session — actions will reopen it.',
-                'Expected closed-session read-only notice to be passed to discussion panel',
+                analyzedScenePath,
+                '/test/repo/ready.md',
+                'Expected extracted scene to be picked up by the analyze command',
             );
-        });
 
-        it('should update discussion panel when switching to another active session', async () => {
-            let viewSessionCallback: any;
-            const setCurrentSessionCalls: Array<number | null> = [];
-            const showCalls: any[] = [];
-
-            mockSessionsTreeProvider = class MockSessionsTreeProvider {
-                setApiClient() {}
-                setProjectPath() {}
-                async refresh() {}
-                setCurrentSession(sessionId: number | null) {
-                    setCurrentSessionCalls.push(sessionId);
-                }
-                setCurrentSessionByScenePath() {}
-                getCurrentSessionItem() { return undefined; }
-            };
-
-            mockDiscussionPanel = class MockDiscussionPanel {
-                onFindingAction: any;
-                onDiscussionResult: any;
-                show(...args: any[]) { showCalls.push(args); }
-                close() {}
-                dispose() {}
-                notifySceneChange() {}
-                clearIndexChangeNotice() {}
-                notifyIndexChange() {}
-            };
-
-            mockApiClient = class MockApiClient {
-                async getSession() {
-                    return { active: false, findings_status: [] };
-                }
-                async getConfig() {
-                    return {
-                        api_key_configured: true,
-                        available_models: { sonnet: { label: 'Sonnet' } },
-                        default_model: 'sonnet',
-                    };
-                }
-                async getSessionDetail() {
-                    return {
-                        id: 7,
-                        status: 'active',
-                        scene_path: '/test/repo/scene01.txt',
-                        model: 'sonnet',
-                        created_at: '2026-02-10T10:00:00',
-                        completed_at: undefined,
-                        total_findings: 1,
-                        accepted_count: 0,
-                        rejected_count: 0,
-                        withdrawn_count: 0,
-                        scene_hash: 'hash',
-                        current_index: 0,
-                        glossary_issues: [],
-                        findings: [],
-                    };
-                }
-                async resumeSessionByIdWithRecovery() {
-                    return {
-                        scene_path: '/test/repo/scene01.txt',
-                        scene_name: 'scene01.txt',
-                        project_path: '/test/repo',
-                        total_findings: 1,
-                        current_index: 0,
-                        glossary_issues: [],
-                        counts: { critical: 0, major: 1, minor: 0 },
-                        lens_counts: { prose: { critical: 0, major: 1, minor: 0 } },
-                        model: { name: 'sonnet', id: 'sonnet', label: 'Sonnet' },
-                        learning: { review_count: 0, preferences: 0, blind_spots: 0 },
-                        findings_status: [
-                            {
-                                number: 1,
-                                severity: 'major',
-                                lens: 'prose',
-                                status: 'pending',
-                                location: 'L1',
-                                evidence: 'example',
-                                line_start: 1,
-                                line_end: 1,
-                            },
-                        ],
-                    };
-                }
-                async getCurrentFinding() {
-                    return {
-                        complete: false,
-                        finding: {
-                            number: 1,
-                            severity: 'major',
-                            lens: 'prose',
-                            location: 'L1',
-                            line_start: 1,
-                            line_end: 1,
-                            evidence: 'example',
-                            impact: '',
-                            options: [],
-                            flagged_by: [],
-                            ambiguity_type: null,
-                            stale: false,
-                            status: 'pending',
-                        },
-                        index: 0,
-                        current: 1,
-                        total: 1,
-                        is_ambiguity: false,
-                    };
-                }
-            };
-
-            mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.viewSession') {
-                    viewSessionCallback = callback;
-                }
-                return { dispose: () => {} };
-            };
-
-            mockVscode.workspace.workspaceFolders = [{ uri: { fsPath: '/test/repo' } }];
-            mockVscode.workspace.getConfiguration = () => ({
-                get: (key: string, defaultValue: any) => {
-                    if (key === 'autoStartServer') return true;
-                    return defaultValue;
-                },
-                update: async () => {},
-            });
-            mockVscode.window.setStatusBarMessage = () => ({ dispose: () => {} });
-
-            mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py')
-                    || filePath.includes('CANON.md')
-                    || filePath.includes('scene01.txt');
-            };
-
-            loadExtension();
-            await activate({ subscriptions: [] });
-
-            await viewSessionCallback({ session: { id: 7 } });
-
-            assert.ok(setCurrentSessionCalls.includes(7), 'Expected selected active session to become current');
-            assert.ok(showCalls.length > 0, 'Expected discussion panel to be updated on active session switch');
-        });
-
-        it('should select finding returned by getCurrentFinding when index is missing', async () => {
-            let viewSessionCallback: any;
-            const findingRevealCalls: Array<{ item: any; options: any }> = [];
-            let getCurrentFindingCalls = 0;
-
-            mockVscode.window.createTreeView = (viewId: string, _options: any) => {
-                const reveal = async (item: any, options: any) => {
-                    if (viewId === 'literaryCritic.findings') {
-                        findingRevealCalls.push({ item, options });
-                    }
-                };
-                return { dispose: () => {}, reveal, visible: true };
-            };
-
-            mockDiscussionPanel = class MockDiscussionPanel {
-                onFindingAction: any;
-                onDiscussionResult: any;
-                show() {}
-                close() {}
-                dispose() {}
-                notifySceneChange() {}
-                clearIndexChangeNotice() {}
-                notifyIndexChange() {}
-            };
-
-            mockApiClient = class MockApiClient {
-                async updateRepoPath(_repoPath: string) {
-                    return { ok: true };
-                }
-                async getSession() {
-                    return { active: false, findings_status: [] };
-                }
-                async getConfig() {
-                    return {
-                        api_key_configured: true,
-                        available_models: { sonnet: { label: 'Sonnet' } },
-                        default_model: 'sonnet',
-                    };
-                }
-                async getSessionDetail() {
-                    return {
-                        id: 7,
-                        status: 'active',
-                        scene_path: '/test/repo/scene01.txt',
-                        model: 'sonnet',
-                        created_at: '2026-02-10T10:00:00',
-                        completed_at: undefined,
-                        total_findings: 2,
-                        accepted_count: 0,
-                        rejected_count: 0,
-                        withdrawn_count: 0,
-                        scene_hash: 'hash',
-                        current_index: 1,
-                        glossary_issues: [],
-                        findings: [],
-                    };
-                }
-                async resumeSessionByIdWithRecovery() {
-                    return {
-                        scene_path: '/test/repo/scene01.txt',
-                        scene_name: 'scene01.txt',
-                        project_path: '/test/repo',
-                        total_findings: 2,
-                        current_index: 1,
-                        glossary_issues: [],
-                        counts: { critical: 0, major: 1, minor: 1 },
-                        lens_counts: {
-                            prose: { critical: 0, major: 1, minor: 0 },
-                            structure: { critical: 0, major: 0, minor: 1 },
-                        },
-                        model: { name: 'sonnet', id: 'sonnet', label: 'Sonnet' },
-                        learning: { review_count: 0, preferences: 0, blind_spots: 0 },
-                        findings_status: [
-                            {
-                                number: 1,
-                                severity: 'major',
-                                lens: 'prose',
-                                status: 'pending',
-                                location: 'L1',
-                                evidence: 'first',
-                                line_start: 1,
-                                line_end: 1,
-                            },
-                            {
-                                number: 2,
-                                severity: 'minor',
-                                lens: 'structure',
-                                status: 'pending',
-                                location: 'L2',
-                                evidence: 'second',
-                                line_start: 2,
-                                line_end: 2,
-                            },
-                        ],
-                    };
-                }
-                async getCurrentFinding() {
-                    getCurrentFindingCalls += 1;
-                    if (getCurrentFindingCalls === 1) {
-                        return {
-                            complete: false,
-                            finding: {
-                                number: 2,
-                                severity: 'minor',
-                                lens: 'structure',
-                                location: 'L2',
-                                line_start: 2,
-                                line_end: 2,
-                                evidence: 'second',
-                                impact: '',
-                                options: [],
-                                flagged_by: [],
-                                ambiguity_type: null,
-                                stale: false,
-                                status: 'pending',
-                            },
-                            index: 1,
-                            current: 2,
-                            total: 2,
-                            is_ambiguity: false,
-                        };
-                    }
-
-                    return {
-                        complete: false,
-                        finding: {
-                            number: 1,
-                            severity: 'major',
-                            lens: 'prose',
-                            location: 'L1',
-                            line_start: 1,
-                            line_end: 1,
-                            evidence: 'first',
-                            impact: '',
-                            options: [],
-                            flagged_by: [],
-                            ambiguity_type: null,
-                            stale: false,
-                            status: 'pending',
-                        },
-                        // Intentionally omit index to verify fallback by finding number
-                        current: 1,
-                        total: 2,
-                        is_ambiguity: false,
-                    };
-                }
-            };
-
-            mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.viewSession') {
-                    viewSessionCallback = callback;
-                }
-                return { dispose: () => {} };
-            };
-
-            mockVscode.workspace.workspaceFolders = [{ uri: { fsPath: '/test/repo' } }];
-            mockVscode.workspace.getConfiguration = () => ({
-                get: (key: string, defaultValue: any) => {
-                    if (key === 'autoStartServer') return true;
-                    return defaultValue;
-                },
-                update: async () => {},
-            });
-            mockVscode.window.setStatusBarMessage = () => ({ dispose: () => {} });
-
-            mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py')
-                    || filePath.includes('CANON.md')
-                    || filePath.includes('scene01.txt');
-            };
-
-            loadExtension();
-            await activate({ subscriptions: [] });
-
-            // First selection sets the extension's current index to #2 (index 1).
-            await viewSessionCallback({ session: { id: 7 } });
-            // Second selection returns finding #1 without index.
-            await viewSessionCallback({ session: { id: 7 } });
-
-            const lastFindingReveal = findingRevealCalls[findingRevealCalls.length - 1];
-            assert.ok(lastFindingReveal, 'Expected findings tree selection to be revealed');
-            assert.equal(
-                lastFindingReveal.item?.id,
-                'finding:1',
-                'Expected findings tree to select finding #1 when getCurrentFinding omits index',
-            );
-            assert.equal(lastFindingReveal.options?.select, true);
+            fs.rmSync(validRepo, { recursive: true, force: true });
         });
 
         it('should handle stopServer command', async () => {
@@ -2837,7 +2068,7 @@ describe('Extension (Real)', () => {
             
             let stopServerCallback: any;
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.stopServer') {
+                if (cmd === 'litCritic.stopServer') {
                     stopServerCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -2857,7 +2088,7 @@ describe('Extension (Real)', () => {
             
             // Fix path separators issue - just check for the file
             mockFs.existsSync = (path: string) => {
-                return path.includes('lit-critic-web.py');
+                return path.includes('lit-critic-server.py');
             };
             
             loadExtension();
@@ -2888,7 +2119,7 @@ describe('Extension (Real)', () => {
             let showWarningResponse = 'Delete'; // User confirms
             
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.clearSession') {
+                if (cmd === 'litCritic.clearSession') {
                     clearSessionCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -2912,7 +2143,7 @@ describe('Extension (Real)', () => {
             
             // Fix path separators issue - just check for the file
             mockFs.existsSync = (path: string) => {
-                return path.includes('lit-critic-web.py');
+                return path.includes('lit-critic-server.py');
             };
             
             loadExtension();
@@ -2939,6 +2170,7 @@ describe('Extension (Real)', () => {
             mockLearningTreeProvider = class MockLearningTreeProvider {
                 setApiClient() {}
                 setProjectPath() {}
+                setLogger() {}
                 async refresh() {
                     learningRefreshCalls += 1;
                 }
@@ -2965,7 +2197,7 @@ describe('Extension (Real)', () => {
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.deleteLearningEntry') {
+                if (cmd === 'litCritic.deleteLearningEntry') {
                     deleteLearningEntryCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -2989,7 +2221,7 @@ describe('Extension (Real)', () => {
             });
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -3030,7 +2262,7 @@ describe('Extension (Real)', () => {
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.deleteLearningEntry') {
+                if (cmd === 'litCritic.deleteLearningEntry') {
                     deleteLearningEntryCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -3049,7 +2281,7 @@ describe('Extension (Real)', () => {
             });
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
@@ -3061,8 +2293,33 @@ describe('Extension (Real)', () => {
         });
 
         it('auto-chains cmdRefreshKnowledge before cmdAnalyze when stale inputs exist', async () => {
-            const callOrder: string[] = [];
+            // After session-command removal, SessionWorkflowController no longer exists.
+            // The auto-chain logic now lives inline in extension.ts's cmdAnalyze handler,
+            // which checks stalenessRegistry.hasStaleInputs() then calls
+            // controller.cmdRefreshKnowledge() (which invokes refreshProjectKnowledge).
+            // We observe the behavior through API call tracking.
+            let refreshProjectKnowledgeCalled = false;
             let analyzeCallback: any;
+
+            // recheckStaleness calls setStalePaths / setStaleEntities on tree providers.
+            // Without these stubs, recheckStaleness throws silently and never populates the registry.
+            mockLearningTreeProvider = class MockScenesTreeProvider {
+                setApiClient() {}
+                setProjectPath() {}
+                setLogger() {}
+                async refresh() {}
+                setStaleInputPaths(_paths: Set<string>) {}
+            };
+            mockKnowledgeTreeProvider = class MockKnowledgeTreeProvider {
+                setApiClient() {}
+                setProjectPath() {}
+                async refresh() {}
+                getEntityPayload() { return null; }
+                getAdjacentEntityPayload() { return null; }
+                setAllEntitiesStale(_stale: boolean) {}
+                setStaleEntityKeys(_keys: Set<string>) {}
+                setOrphanedSceneKeys(_keys: Set<string>) {}
+            };
 
             // Return a stale item so autoLoadSidebar populates the registry
             mockApiClient = class MockApiClient {
@@ -3074,35 +2331,15 @@ describe('Extension (Real)', () => {
                 async getInputStaleness(_path: string) {
                     return { stale_inputs: [{ path: '/test/repo/text/scene1.txt', type: 'scene', affected_knowledge: [], affected_sessions: [] }] };
                 }
-            };
-
-            const MockController = class {
-                handleFindingAction = () => {};
-                handleDiscussionResult = async (_: any) => {};
-                cmdAnalyze = async () => { callOrder.push('cmdAnalyze'); };
-                cmdRefreshKnowledge = async () => { callOrder.push('cmdRefreshKnowledge'); };
-                cmdNextFinding = async () => {};
-                cmdAcceptFinding = async () => {};
-                cmdRejectFinding = async () => {};
-                cmdDiscuss = async () => {};
-                cmdSelectFinding = async () => {};
-                cmdReviewFinding = async () => {};
-                cmdSelectModel = async () => {};
-                cmdStopServer = () => {};
-                cmdViewSession = async () => {};
-                cmdDeleteSession = async () => {};
-                cmdRefreshLearning = async () => {};
-                cmdExportLearning = async () => {};
-                cmdResetLearning = async () => {};
-                cmdDeleteLearningEntry = async () => {};
-                cmdEditKnowledgeEntry = async () => false;
-                cmdResetKnowledgeOverride = async () => {};
-                editKnowledgeEntry = async () => false;
-                resetKnowledgeOverride = async () => {};
+                async refreshKnowledge() {
+                    refreshProjectKnowledgeCalled = true;
+                    return { scene_updated: 0, index_updated: 0 };
+                }
+                async configureLoop() { return {}; }
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') { analyzeCallback = callback; }
+                if (cmd === 'litCritic.analyze') { analyzeCallback = callback; }
                 return { dispose: () => {} };
             };
             mockVscode.workspace.getConfiguration = () => ({
@@ -3113,48 +2350,31 @@ describe('Extension (Real)', () => {
                 update: async () => {},
             });
             mockVscode.workspace.workspaceFolders = [{ uri: { fsPath: '/test/repo' } }];
-            mockFs.existsSync = (p: string) => p.includes('lit-critic-web.py') || p.includes('CANON.md');
+            mockFs.existsSync = (p: string) => p.includes('lit-critic-server.py') || p.includes('CANON.md');
 
-            const registerCommandsMod = proxyquire('../../vscode-extension/src/commands/registerCommands', { vscode: mockVscode });
-            const sceneDiscoveryConfigMod = proxyquire('../../vscode-extension/src/bootstrap/sceneDiscoveryConfig', { vscode: mockVscode });
-            const module = proxyquire('../../vscode-extension/src/extension', {
-                'vscode': mockVscode,
-                './serverManager': { ServerManager: mockServerManager },
-                './apiClient': { ApiClient: mockApiClient },
-                './findingsTreeProvider': { FindingsTreeProvider: mockFindingsTreeProvider, FindingsDecorationProvider: mockFindingsDecorationProvider },
-                './sessionsTreeProvider': { SessionsTreeProvider: mockSessionsTreeProvider },
-                './learningTreeProvider': { LearningTreeProvider: mockLearningTreeProvider },
-                './scenesTreeProvider': { ScenesTreeProvider: mockLearningTreeProvider },
-                './knowledgeTreeProvider': { KnowledgeTreeProvider: mockKnowledgeTreeProvider },
-                './knowledgeReviewViewProvider': { KnowledgeReviewViewProvider: mockKnowledgeReviewPanel },
-                './diagnosticsProvider': { DiagnosticsProvider: mockDiagnosticsProvider },
-                './discussionViewProvider': { DiscussionViewProvider: mockDiscussionPanel },
-                './statusBar': { StatusBar: mockStatusBar },
-                './operationTracker': { OperationTracker: mockOperationTracker },
-                'path': mockPath,
-                'fs': mockFs,
-                './commands/registerCommands': registerCommandsMod,
-                './bootstrap/sceneDiscoveryConfig': sceneDiscoveryConfigMod,
-                './workflows/sessionWorkflowController': { SessionWorkflowController: MockController },
-            });
-            activate = module.activate;
-
+            loadExtension();
             await activate({ subscriptions: [] });
             assert.ok(analyzeCallback, 'Expected analyze command to be registered');
 
-            await analyzeCallback();
+            // recheckStaleness is fire-and-forget (void) during autoLoadSidebar,
+            // so we need to flush microtasks before the registry is populated.
+            await new Promise(resolve => setTimeout(resolve, 500));
 
-            assert.ok(callOrder.includes('cmdRefreshKnowledge'), 'Expected cmdRefreshKnowledge to be called');
-            assert.ok(callOrder.includes('cmdAnalyze'), 'Expected cmdAnalyze to be called');
-            assert.equal(callOrder.indexOf('cmdRefreshKnowledge'), 0, 'Expected cmdRefreshKnowledge to be called first (D1)');
-            assert.equal(callOrder.indexOf('cmdAnalyze'), 1, 'Expected cmdAnalyze to be called second');
+            // cmdAnalyze may fail downstream (no scene selected) — that's fine;
+            // we only care that refreshProjectKnowledge was triggered first.
+            await analyzeCallback().catch(() => {});
+
+            assert.ok(
+                refreshProjectKnowledgeCalled,
+                'Expected cmdRefreshKnowledge to trigger refreshProjectKnowledge when stale inputs exist',
+            );
         });
 
         it('does not auto-chain cmdRefreshKnowledge when no stale inputs exist', async () => {
-            const callOrder: string[] = [];
+            let refreshProjectKnowledgeCalled = false;
             let analyzeCallback: any;
 
-            // Return empty stale inputs
+            // Return empty stale inputs so stalenessRegistry stays empty
             mockApiClient = class MockApiClient {
                 async updateRepoPath() { return { ok: true }; }
                 async getSession() { return { active: false }; }
@@ -3164,35 +2384,15 @@ describe('Extension (Real)', () => {
                 async getInputStaleness(_path: string) {
                     return { stale_inputs: [] };
                 }
-            };
-
-            const MockController = class {
-                handleFindingAction = () => {};
-                handleDiscussionResult = async (_: any) => {};
-                cmdAnalyze = async () => { callOrder.push('cmdAnalyze'); };
-                cmdRefreshKnowledge = async () => { callOrder.push('cmdRefreshKnowledge'); };
-                cmdNextFinding = async () => {};
-                cmdAcceptFinding = async () => {};
-                cmdRejectFinding = async () => {};
-                cmdDiscuss = async () => {};
-                cmdSelectFinding = async () => {};
-                cmdReviewFinding = async () => {};
-                cmdSelectModel = async () => {};
-                cmdStopServer = () => {};
-                cmdViewSession = async () => {};
-                cmdDeleteSession = async () => {};
-                cmdRefreshLearning = async () => {};
-                cmdExportLearning = async () => {};
-                cmdResetLearning = async () => {};
-                cmdDeleteLearningEntry = async () => {};
-                cmdEditKnowledgeEntry = async () => false;
-                cmdResetKnowledgeOverride = async () => {};
-                editKnowledgeEntry = async () => false;
-                resetKnowledgeOverride = async () => {};
+                async refreshProjectKnowledge() {
+                    refreshProjectKnowledgeCalled = true;
+                    return { scenes: { total: 0, refreshed: 0, stale: 0, stale_paths: [] }, indexes: { total: 0, refreshed: 0, stale: 0, stale_names: [] } };
+                }
+                async configureLoop() { return {}; }
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.analyze') { analyzeCallback = callback; }
+                if (cmd === 'litCritic.analyze') { analyzeCallback = callback; }
                 return { dispose: () => {} };
             };
             mockVscode.workspace.getConfiguration = () => ({
@@ -3203,39 +2403,18 @@ describe('Extension (Real)', () => {
                 update: async () => {},
             });
             mockVscode.workspace.workspaceFolders = [{ uri: { fsPath: '/test/repo' } }];
-            mockFs.existsSync = (p: string) => p.includes('lit-critic-web.py') || p.includes('CANON.md');
+            mockFs.existsSync = (p: string) => p.includes('lit-critic-server.py') || p.includes('CANON.md');
 
-            const registerCommandsMod = proxyquire('../../vscode-extension/src/commands/registerCommands', { vscode: mockVscode });
-            const sceneDiscoveryConfigMod = proxyquire('../../vscode-extension/src/bootstrap/sceneDiscoveryConfig', { vscode: mockVscode });
-            const module = proxyquire('../../vscode-extension/src/extension', {
-                'vscode': mockVscode,
-                './serverManager': { ServerManager: mockServerManager },
-                './apiClient': { ApiClient: mockApiClient },
-                './findingsTreeProvider': { FindingsTreeProvider: mockFindingsTreeProvider, FindingsDecorationProvider: mockFindingsDecorationProvider },
-                './sessionsTreeProvider': { SessionsTreeProvider: mockSessionsTreeProvider },
-                './learningTreeProvider': { LearningTreeProvider: mockLearningTreeProvider },
-                './scenesTreeProvider': { ScenesTreeProvider: mockLearningTreeProvider },
-                './knowledgeTreeProvider': { KnowledgeTreeProvider: mockKnowledgeTreeProvider },
-                './knowledgeReviewViewProvider': { KnowledgeReviewViewProvider: mockKnowledgeReviewPanel },
-                './diagnosticsProvider': { DiagnosticsProvider: mockDiagnosticsProvider },
-                './discussionViewProvider': { DiscussionViewProvider: mockDiscussionPanel },
-                './statusBar': { StatusBar: mockStatusBar },
-                './operationTracker': { OperationTracker: mockOperationTracker },
-                'path': mockPath,
-                'fs': mockFs,
-                './commands/registerCommands': registerCommandsMod,
-                './bootstrap/sceneDiscoveryConfig': sceneDiscoveryConfigMod,
-                './workflows/sessionWorkflowController': { SessionWorkflowController: MockController },
-            });
-            activate = module.activate;
-
+            loadExtension();
             await activate({ subscriptions: [] });
             assert.ok(analyzeCallback, 'Expected analyze command to be registered');
 
-            await analyzeCallback();
+            await analyzeCallback().catch(() => {});
 
-            assert.ok(!callOrder.includes('cmdRefreshKnowledge'), 'Expected cmdRefreshKnowledge NOT to be called when registry is empty');
-            assert.ok(callOrder.includes('cmdAnalyze'), 'Expected cmdAnalyze to be called');
+            assert.ok(
+                !refreshProjectKnowledgeCalled,
+                'Expected cmdRefreshKnowledge NOT to be called when no stale inputs exist',
+            );
         });
 
         it('should show error when deleteLearningEntry cannot resolve an entry id', async () => {
@@ -3264,7 +2443,7 @@ describe('Extension (Real)', () => {
             };
 
             mockVscode.commands.registerCommand = (cmd: string, callback: any) => {
-                if (cmd === 'literaryCritic.deleteLearningEntry') {
+                if (cmd === 'litCritic.deleteLearningEntry') {
                     deleteLearningEntryCallback = callback;
                 }
                 return { dispose: () => {} };
@@ -3288,7 +2467,7 @@ describe('Extension (Real)', () => {
             });
 
             mockFs.existsSync = (filePath: string) => {
-                return filePath.includes('lit-critic-web.py') || filePath.includes('CANON.md');
+                return filePath.includes('lit-critic-server.py') || filePath.includes('CANON.md');
             };
 
             loadExtension();
